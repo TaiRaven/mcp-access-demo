@@ -4,7 +4,9 @@ A clickable, work-in-progress demo of the MCP Access Console: a ServiceNow scope
 
 **Nothing here calls a model, an MCP server or a ServiceNow instance.** The access decisions come from a JavaScript copy of the real decision logic. The people, records, prompts and tool results are made up.
 
-Open `index.html` in a browser, or use the GitHub Pages link for this repo.
+**Live demo:** https://tairaven.github.io/mcp-access-demo/
+
+Or open `index.html` in a browser.
 
 ## What you can do
 
