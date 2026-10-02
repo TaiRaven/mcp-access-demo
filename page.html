@@ -173,10 +173,10 @@ td select, td input[type="text"] { padding: 3px 6px; border: 1px solid var(--lin
 .toast { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 0.88rem; font-weight: 600; z-index: 20; }
 
 /* ---- flow ---- */
-.flow-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
-@media (max-width: 1000px) { .flow-grid { grid-template-columns: 1fr; } }
-.svg-wrap { overflow-x: auto; }
-svg.flow { width: 100%; min-width: 820px; height: auto; display: block; }
+.flow-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+@media (max-width: 1180px) { .flow-grid { grid-template-columns: 1fr; } }
+.svg-wrap { overflow: hidden; }
+svg.flow { width: 100%; max-width: 100%; height: auto; display: block; }
 svg.flow .node { cursor: pointer; }
 svg.flow .node rect.box { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
 svg.flow .node.built rect.box { stroke: var(--accent); }
