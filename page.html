@@ -520,7 +520,7 @@ footer::before { content: ""; display: block; height: 1px; margin: 0 auto 12px; 
         <button class="btn" id="clearLog">Clear demo rows</button>
       </div>
     </div>
-    <p class="lede" style="font-size:0.88rem;margin-bottom:12px">One row per <code>POST /decision</code>. <code>POST /outcome</code> updates the same row by <code>request_id</code>. Rows marked <span class="pill ghost">sample</span> are seeded examples. Click a row to see its history.</p>
+    <p class="lede" style="font-size:0.88rem;margin-bottom:12px">One row per <code>POST /decision</code>, one row per <code>request_id</code>. <code>POST /outcome</code> records the person's answer in Confirmation and the result in Outcome. Rows marked <span class="pill ghost">sample</span> are seeded examples. Click a row to see its history.</p>
     <div class="tbl-wrap"><table id="logTable"></table></div>
   </div>
 </section>
@@ -560,7 +560,7 @@ footer::before { content: ""; display: block; height: 1px; margin: 0 auto 12px; 
 (function () {
 'use strict';
 var SCOPE = 'x_664529_now_mcp';
-var API = '/api/' + SCOPE + '/policy/v1';
+var API = '/api/' + SCOPE + '/v1/access';
 
 /* ------------------------------------------------------------------ helpers */
 function $(s, r) { return (r || document).querySelector(s); }
@@ -710,8 +710,11 @@ function seed() {
   samples.forEach(function (s, i) {
     var u = st.users.filter(function (x) { return x.email === s[1]; })[0];
     var hist = [{ at: snTime(new Date(s[0])), what: 'decision ' + s[4] + (s[4] !== 'deny' ? ', outcome pending' : '') }];
-    if (s[7]) hist.push({ at: snTime(new Date(s[0] + 4000)), what: 'outcome ' + s[7] });
-    st.log.push({ id: 'L' + i, created: s[0], user: u ? u.id : '', user_identifier: s[1], entry_point_key: s[2], tool_name: s[3], decision: s[4], reason: s[5], rule: s[6] || '', request_id: 'req-s' + (i + 1), outcome: s[7] || (s[4] === 'deny' ? '' : 'pending'), duration_ms: s[8], history: hist, sample: true });
+    if (s[4] === 'confirm_required') hist.push({ at: snTime(new Date(s[0] + 3000)), what: 'confirmation pending → ' + (s[7] === 'declined' ? 'declined' : 'confirmed') });
+    if (s[7]) hist.push({ at: snTime(new Date(s[0] + 4000)), what: 'outcome pending → ' + (s[7] === 'declined' ? 'cancelled' : s[7]) });
+    var conf = s[4] === 'confirm_required' ? (s[7] === 'declined' ? 'declined' : 'confirmed') : s[4] === 'allow' ? 'not_needed' : '';
+    var out = s[7] === 'declined' ? 'cancelled' : (s[7] || (s[4] === 'deny' ? '' : 'pending'));
+    st.log.push({ id: 'L' + i, created: s[0], user: u ? u.id : '', user_identifier: s[1], entry_point_key: s[2], tool_name: s[3], decision: s[4], reason: s[5], rule: s[6] || '', request_id: 'req-s' + (i + 1), confirmation: conf, outcome: out, duration_ms: s[8], history: hist, sample: true });
   });
   return st;
 }
@@ -764,7 +767,7 @@ function decideTool(tool, hit) {
   if (tool.action_class === 'blocked') return { decision: 'deny', reason: 'tool blocked', rule: null };
   if (tool.status !== 'active') return { decision: 'deny', reason: 'tool ' + (tool.status || 'not active'), rule: null };
   if (hit && hit.denyRule) return { decision: 'deny', reason: 'matched deny rule', rule: hit.denyRule };
-  if (hit && hit.allowRule) return tool.requires_confirmation
+  if (hit && hit.allowRule) return tool.requires_confirmation || tool.pathway === 'act'
     ? { decision: 'confirm_required', reason: 'matched allow rule; tool needs confirmation', rule: hit.allowRule }
     : { decision: 'allow', reason: 'matched allow rule', rule: hit.allowRule };
   return { decision: 'deny', reason: 'no matching rule', rule: null };
@@ -792,6 +795,9 @@ function explain(st, identifier, key) {
   return { denied: null, rows: sortedTools(st).map(function (t) { var d = decideTool(t, hits[t.id]); return { tool: t, d: d }; }) };
 }
 function decide(st, identifier, key, toolName, requestId, parentRequestId) {
+  var rid = (requestId || '').trim();
+  if (!rid) return { decision: 'deny', reason: 'missing request_id', rule: null, error: 'missing_request_id' };
+  if (st.log.some(function (l) { return l.request_id === rid; })) return { decision: 'deny', reason: 'duplicate request_id', rule: null, error: 'duplicate_request_id' };
   var tool = getTool(st, toolName), ep = getEntryPoint(st, key), u = resolveUser(st, identifier), r;
   if (!tool) r = { decision: 'deny', reason: 'unknown tool', rule: null };
   else if (tool.action_class === 'blocked' || tool.status !== 'active') r = decideTool(tool, undefined);
@@ -803,22 +809,32 @@ function decide(st, identifier, key, toolName, requestId, parentRequestId) {
   st.log.push({
     id: 'L' + (++st.seq) + '_' + now, created: now, user: u.sysId || '', user_identifier: identifier || '', entry_point_key: key || '',
     tool_name: toolName || '', decision: r.decision, reason: r.reason, rule: r.rule || '', request_id: requestId || '', parent_request_id: parentRequestId || '',
-    outcome: r.decision !== 'deny' ? 'pending' : '', duration_ms: null,
+    outcome: r.decision !== 'deny' ? 'pending' : '', confirmation: r.decision === 'confirm_required' ? 'pending' : r.decision === 'allow' ? 'not_needed' : '', duration_ms: null,
     history: [{ at: snTime(new Date(now)), what: 'decision ' + r.decision + (r.decision !== 'deny' ? ', outcome pending' : '') }]
   });
   return r;
 }
-var OUTCOMES = ['success', 'error', 'cancelled', 'confirmed', 'declined'];
 function recordOutcome(st, requestId, outcome, ms) {
-  if (OUTCOMES.indexOf(outcome) === -1) return 'bad_outcome';
-  var rows = st.log.filter(function (l) { return l.request_id === requestId; }).sort(function (a, b) { return b.created - a.created; });
-  if (!rows.length) return false;
-  var row = rows[0];
-  var prev = row.outcome;
+  var isAnswer = outcome === 'confirmed' || outcome === 'declined';
+  if (!isAnswer && ['success', 'error', 'cancelled'].indexOf(outcome) === -1) return 'bad_outcome';
+  var row = st.log.filter(function (l) { return l.request_id === requestId; })[0];
+  if (!row) return 'not_found';
+  if (row.decision === 'deny') return 'denied';
+  var now = snTime(new Date());
+  if (isAnswer) {
+    if (row.confirmation !== 'pending') return 'not_waiting_for_confirmation';
+    row.confirmation = outcome;
+    row.history.push({ at: now, what: 'confirmation pending → ' + outcome });
+    if (outcome === 'declined') { row.outcome = 'cancelled'; row.history.push({ at: now, what: 'outcome pending → cancelled' }); }
+    return 'ok';
+  }
+  if (row.outcome !== 'pending') return 'already_final';
+  if (row.confirmation === 'pending') return 'awaiting_confirmation';
+  if (row.confirmation === 'declined') return 'declined';
   row.outcome = outcome;
   if (ms != null && !isNaN(ms)) row.duration_ms = Math.round(ms);
-  row.history.push({ at: snTime(new Date()), what: 'outcome ' + (prev ? prev + ' → ' : '') + outcome });
-  return true;
+  row.history.push({ at: now, what: 'outcome pending → ' + outcome });
+  return 'ok';
 }
 function syncCatalog(st, tools) {
   var res = { created: [], updated: [], unchanged: [], invalid: [], not_in_request: [] }, seen = {};
@@ -827,14 +843,16 @@ function syncCatalog(st, tools) {
     if (!/^[a-z0-9_]{1,100}$/.test(name) || seen[name]) { res.invalid.push(name || String(t && t.name)); return; }
     seen[name] = true;
     var category = t.category || '', source = t.source || (category === 'docs' ? 'docs' : 'servicenow');
+    var provider = typeof t.provider === 'string' ? t.provider.trim() : '';
     var ex = getTool(st, name);
     if (ex) {
-      if (ex.category !== category || ex.source !== source) { ex.category = category; ex.source = source; res.updated.push(name); }
+      var pc = !!provider && (ex.provider || '') !== provider;
+      if (ex.category !== category || ex.source !== source || pc) { ex.category = category; ex.source = source; if (pc) ex.provider = provider; res.updated.push(name); }
       else res.unchanged.push(name);
       return;
     }
-    var w = t.write === true;
-    st.tools.push({ id: 't_' + name, name: name, label: labelOf(name), category: category, source: source, status: 'draft', pathway: w ? 'act' : 'ask', action_class: w ? 'execute' : 'read', requires_confirmation: w, risk: w ? 'medium' : 'low', reads: '', writes: '' });
+    var w = t.write !== false;
+    st.tools.push({ id: 't_' + name, name: name, label: labelOf(name), category: category, source: source, provider: provider, status: 'draft', pathway: w ? 'act' : 'ask', action_class: w ? 'execute' : 'read', requires_confirmation: w, risk: w ? 'medium' : 'low', reads: '', writes: '' });
     res.created.push(name);
   });
   st.tools.forEach(function (t) { if (!seen[t.name]) res.not_in_request.push(t.name); });
@@ -1057,7 +1075,7 @@ async function runPrompt(p) {
   var outcome = fail ? 'error' : 'success';
   recordOutcome(S, reqId, outcome, ms);
   addStep({ node: 'Policy API → Decision log', state: fail ? 'deny' : 'allow', pill: outcomePill(outcome), title: 'Report the outcome',
-    text: d.decision === 'confirm_required' ? 'This overwrites <code>confirmed</code> on the same row. See finding 2 in Plan review.' : 'Same row, found by <code>request_id</code>.',
+    text: d.decision === 'confirm_required' ? 'Same row. <code>confirmation = confirmed</code> stays recorded next to the outcome.' : 'Same row, found by <code>request_id</code>.',
     json: [{ label: 'POST ' + API + '/outcome', data: { request_id: reqId, outcome: outcome, duration_ms: ms } }] });
   await sleep(300);
   bot(fail ? 'I couldn\'t finish that. ServiceNow returned an error (503). Nothing was changed. Try again in a minute.' : p.answer, fail ? 'error' : '');
@@ -1223,12 +1241,12 @@ function renderLog() {
     if (logF === 'error') return l.outcome === 'error' && l.created >= week;
     return true;
   });
-  var head = '<tr><th>Created (UTC)</th><th>Decision</th><th>Tool</th><th>User</th><th>Entry point</th><th>Outcome</th><th>Reason</th><th>Duration</th></tr>';
-  if (!rows.length) { $('#logTable').innerHTML = head + '<tr><td colspan="8"><div class="empty">No rows match. Run a prompt to write one.</div></td></tr>'; return; }
+  var head = '<tr><th>Created (UTC)</th><th>Decision</th><th>Tool</th><th>User</th><th>Entry point</th><th>Confirmation</th><th>Outcome</th><th>Reason</th><th>Duration</th></tr>';
+  if (!rows.length) { $('#logTable').innerHTML = head + '<tr><td colspan="9"><div class="empty">No rows match. Run a prompt to write one.</div></td></tr>'; return; }
   $('#logTable').innerHTML = head + rows.map(function (l) {
-    var r = '<tr class="clickable" data-log="' + l.id + '"><td class="num">' + snTime(new Date(l.created)) + (l.sample ? ' <span class="pill ghost">sample</span>' : '') + '</td><td>' + decisionPill(l.decision) + '</td><td class="mono">' + (l.parent_request_id ? '<span style="color:var(--later)">↳ </span>' : '') + esc(l.tool_name) + '</td><td>' + (l.user ? esc(userName(l.user)) : '<span class="pill muted">empty</span> ') + '<br><span class="mono" style="color:var(--muted)">' + esc(l.user_identifier) + '</span></td><td class="mono">' + esc(l.entry_point_key) + '</td><td>' + outcomePill(l.outcome) + '</td><td>' + esc(l.reason) + '</td><td class="num">' + (l.duration_ms != null ? l.duration_ms + ' ms' : '') + '</td></tr>';
+    var r = '<tr class="clickable" data-log="' + l.id + '"><td class="num">' + snTime(new Date(l.created)) + (l.sample ? ' <span class="pill ghost">sample</span>' : '') + '</td><td>' + decisionPill(l.decision) + '</td><td class="mono">' + (l.parent_request_id ? '<span style="color:var(--later)">↳ </span>' : '') + esc(l.tool_name) + '</td><td>' + (l.user ? esc(userName(l.user)) : '<span class="pill muted">empty</span> ') + '<br><span class="mono" style="color:var(--muted)">' + esc(l.user_identifier) + '</span></td><td class="mono">' + esc(l.entry_point_key) + '</td><td>' + (l.confirmation ? outcomePill(l.confirmation === 'not_needed' ? '' : l.confirmation).replace('none', 'not needed') : '') + '</td><td>' + outcomePill(l.outcome) + '</td><td>' + esc(l.reason) + '</td><td class="num">' + (l.duration_ms != null ? l.duration_ms + ' ms' : '') + '</td></tr>';
     if (openRow === l.id) {
-      r += '<tr class="detail"><td colspan="8"><div class="two"><div><div class="label">History</div><ul style="margin:6px 0 0;padding-left:18px;font-size:0.86rem">' + l.history.map(function (h) { return '<li><span class="mono">' + esc(h.at) + '</span> ' + esc(h.what) + '</li>'; }).join('') + '</ul></div><div><div class="label">Row</div><pre class="code">' + jsonHtml({ user: l.user || '', user_identifier: l.user_identifier, entry_point_key: l.entry_point_key, tool_name: l.tool_name, decision: l.decision, reason: l.reason, rule: l.rule, request_id: l.request_id, parent_request_id: l.parent_request_id || '', outcome: l.outcome, duration_ms: l.duration_ms }) + '</pre></div></div></td></tr>';
+      r += '<tr class="detail"><td colspan="9"><div class="two"><div><div class="label">History</div><ul style="margin:6px 0 0;padding-left:18px;font-size:0.86rem">' + l.history.map(function (h) { return '<li><span class="mono">' + esc(h.at) + '</span> ' + esc(h.what) + '</li>'; }).join('') + '</ul></div><div><div class="label">Row</div><pre class="code">' + jsonHtml({ user: l.user || '', user_identifier: l.user_identifier, entry_point_key: l.entry_point_key, tool_name: l.tool_name, decision: l.decision, reason: l.reason, rule: l.rule, request_id: l.request_id, parent_request_id: l.parent_request_id || '', confirmation: l.confirmation || '', outcome: l.outcome, duration_ms: l.duration_ms }) + '</pre></div></div></td></tr>';
     }
     return r;
   }).join('');
@@ -1374,6 +1392,7 @@ var BUILD = [
   ['2', 'Tables 1–6, audit on 1–5', 'built', 'All six tables plus tool_set_item, with forms and lists'],
   ['3', 'Roles', 'built', 'admin (contains auditor), auditor, orchestrator'],
   ['3', 'ACLs', 'todo', 'No ACL definitions in src yet'],
+  ['—', 'Data model fixes', 'built', 'Findings 2–5 fixed; confirmation, parent_request_id, provider, data_quality, evaluation added'],
   ['4', 'PolicyService', 'written', 'Logic in src/server/policy. Not yet a Script Include or called by REST'],
   ['5', 'Scripted REST API, 5 routes', 'todo', ''],
   ['6', 'Menu and modules', 'todo', ''],
@@ -1389,17 +1408,17 @@ var FINDINGS = [
     p: 'The model only sees allowed tools, and GET /policy is not logged. So POST /decision only says deny when a client calls a tool it was not offered. The "Denied, last 7 days" module will be close to empty. Test 7 only logs because the test calls /decision directly.',
     fix: 'Log a row when GET /policy returns a denied_reason (unknown user, inactive entry point). Or have the orchestrator call /decision when the model asks for a tool it does not have.',
     try: ['sam', 0, 'Run Sam\'s prompt, then open the log'] },
-  { sev: ['Medium', 'confirm'], h: 'Confirmation and outcome share one field.',
+  { sev: ['Medium', 'confirm'], fixed: true, h: 'Confirmation and outcome share one field.',
     p: 'A confirmed call records "confirmed", then "success" overwrites it on the same row. Afterwards the log cannot show that a person approved the change. That is the record governance will want most.',
     fix: 'Add a separate confirmation field (confirmed, declined, not needed), or log the confirmation as its own row.',
     try: ['priya', 1, 'Resolve INC0010023 as Priya, confirm, then open the row\'s history'] },
-  { sev: ['Medium', 'confirm'], h: 'recordOutcome accepts any update.',
+  { sev: ['Medium', 'confirm'], fixed: true, h: 'recordOutcome accepts any update.',
     p: 'It updates the newest row with that request_id. That can be a deny row, or a row that already has a final outcome. request_id is not unique.',
     fix: 'Reject outcomes on deny rows. Only allow pending → confirmed/declined → success/error/cancelled. Make request_id unique, or reject a second /decision with the same id.' },
-  { sev: ['Medium', 'confirm'], h: 'Act tools only need confirmation if they were synced that way.',
+  { sev: ['Medium', 'confirm'], fixed: true, h: 'Act tools only need confirmation if they were synced that way.',
     p: 'The plan says requires_confirmation defaults to true when pathway is act. The code only sets it when /catalog/sync first creates the row. If an admin later changes a tool to act, confirmation stays off.',
     fix: 'Add a before-update business rule, or have decideTool treat pathway = act as confirm always. This also answers the open decision on risk = high.' },
-  { sev: ['Medium', 'confirm'], h: '/catalog/sync reads a write flag the plan does not mention.',
+  { sev: ['Medium', 'confirm'], fixed: true, h: '/catalog/sync reads a write flag the plan does not mention.',
     p: 'The plan\'s body is { name, category, source }. The code also reads write to choose act / execute / confirm. If sn-mcp does not send it, every new tool arrives as a read tool with no confirmation. An admin who activates it without looking would grant a write tool with no confirmation step.',
     fix: 'Add write to the plan and to sn-mcp\'s sync call. Or default new tools to act / execute / confirm until an admin says otherwise.' },
   { sev: ['Low', 'muted'], h: 'policy_version format and staleness.',
@@ -1437,7 +1456,7 @@ function renderReview() {
     var s = STATUS_LABEL[b[2]]; return '<tr><td class="num">' + b[0] + '</td><td>' + esc(b[1]) + '</td><td><span class="pill ' + s[1] + '">' + s[0] + '</span></td><td style="font-size:0.84rem;color:var(--muted)">' + esc(b[3]) + '</td></tr>';
   }).join('');
   $('#findings').innerHTML = FINDINGS.map(function (f, i) {
-    return '<div class="finding"><div class="row1"><span class="pill ' + f.sev[1] + '">' + f.sev[0] + '</span><h3>' + (i + 1) + '. ' + esc(f.h) + '</h3></div><p>' + esc(f.p) + '</p><p class="fix"><strong>Fix:</strong> ' + esc(f.fix) + '</p>' + (f.try ? '<p class="try"><button class="linkish" data-try="' + f.try[0] + ':' + f.try[1] + '">Try it: ' + esc(f.try[2]) + '</button></p>' : '') + '</div>';
+    return '<div class="finding"><div class="row1"><span class="pill ' + f.sev[1] + '">' + f.sev[0] + '</span>' + (f.fixed ? '<span class="pill allow">Fixed in code</span>' : '') + '<h3>' + (i + 1) + '. ' + esc(f.h) + '</h3></div><p>' + esc(f.p) + '</p><p class="fix"><strong>Fix:</strong> ' + esc(f.fix) + '</p>' + (f.try ? '<p class="try"><button class="linkish" data-try="' + f.try[0] + ':' + f.try[1] + '">Try it: ' + esc(f.try[2]) + '</button></p>' : '') + '</div>';
   }).join('');
   $('#satChanges').innerHTML = SAT_CHANGES.map(function (c, i) {
     return '<div class="finding"><div class="row1"><span class="pill later">Proposed</span><h3>' + (i + 1) + '. ' + esc(c[0]) + '</h3></div><p>' + esc(c[1]) + '</p></div>';
@@ -1499,6 +1518,18 @@ function runTests() {
     ['S1', 'Satellite plan: a write step still needs confirmation and logs its parent', function () {
       var st = fresh(); var d = decide(st, 'priya.shah@example.com', 'claude', 'update_incident', 'p.4', 'p');
       return d.decision === 'confirm_required' && st.log[0].parent_request_id === 'p';
+    }],
+    ['S3', 'Outcome order: no success before confirmation, no outcome on a deny, no overwrite', function () {
+      var st = fresh();
+      decide(st, 'priya.shah@example.com', 'claude', 'resolve_incident', 'a');
+      var early = recordOutcome(st, 'a', 'success', 1);
+      recordOutcome(st, 'a', 'confirmed'); recordOutcome(st, 'a', 'success', 10);
+      var again = recordOutcome(st, 'a', 'error', 10);
+      decide(st, 'alex.kim@example.com', 'claude', 'resolve_incident', 'b');
+      var onDeny = recordOutcome(st, 'b', 'success', 1);
+      var dup = decide(st, 'priya.shah@example.com', 'claude', 'list_incidents', 'a').error;
+      var r = st.log[0];
+      return early === 'awaiting_confirmation' && again === 'already_final' && onDeny === 'denied' && dup === 'duplicate_request_id' && r.confirmation === 'confirmed' && r.outcome === 'success';
     }],
     ['S2', 'Satellite cannot widen access: no agent for people without the set', function () {
       var st = fresh(); var a = names(getEffectiveTools(st, 'alex.kim@example.com', 'copilot'));
