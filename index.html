@@ -8,43 +8,37 @@
 <title>MCP Access Console Demo</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Chakra+Petch:wght@400;500;600&family=Share+Tech+Mono&display=swap">
 <style>
-/* Layout: a control-room tool. Sticky tab bar, then one working surface per tab.
-   Status is carried by form (pills, dashed outlines) so a viewer can scan it. */
+/* Layout: a night-city HUD. Red-lit frame lines, a neon section title per tab, cyan data panels.
+   One deliberate dark look; status still reads by form (pills, dashed outlines). */
 :root {
-  --bg: #f3f5f8;
-  --surface: #ffffff;
-  --surface-2: #e9edf3;
-  --line: #d5dbe5;
-  --fg: #172033;
-  --muted: #586379;
-  --accent: #2a4bd1;
-  --accent-soft: #e2e8fd;
-  --allow: #1c7548;
-  --allow-soft: #ddf1e5;
-  --deny: #b2213a;
-  --deny-soft: #f8e1e5;
-  --confirm: #8f5600;
-  --confirm-soft: #fbedd5;
-  --later: #6d4fb0;
-  --later-soft: #ece6f8;
-  --code-bg: #f6f8fb;
-  --font-ui: "Hanken Grotesk", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
-  --r: 8px;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #10141c; --surface: #181e2a; --surface-2: #212938; --line: #2e3749; --fg: #e5e9f1; --muted: #98a2b6;
-    --accent: #8ea2ff; --accent-soft: #222b4f; --allow: #62d197; --allow-soft: #15301f; --deny: #ff8193; --deny-soft: #3a1820;
-    --confirm: #f2b65c; --confirm-soft: #382810; --later: #bba1f3; --later-soft: #2a2142; --code-bg: #131925; color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #10141c; --surface: #181e2a; --surface-2: #212938; --line: #2e3749; --fg: #e5e9f1; --muted: #98a2b6;
-  --accent: #8ea2ff; --accent-soft: #222b4f; --allow: #62d197; --allow-soft: #15301f; --deny: #ff8193; --deny-soft: #3a1820;
-  --confirm: #f2b65c; --confirm-soft: #382810; --later: #bba1f3; --later-soft: #2a2142; --code-bg: #131925; color-scheme: dark;
+  --bg: #0d0a0c;
+  --surface: #161013;
+  --surface-2: #22171b;
+  --line: #4a2a2c;
+  --fg: #ece4e2;
+  --muted: #a1908f;
+  --hot: #ff5a48;
+  --hot-soft: #3a1714;
+  --accent: #4ff0ff;
+  --accent-soft: #0e2a2f;
+  --green: #3fe08f;
+  --allow: #3fe08f;
+  --allow-soft: #0f2a1c;
+  --deny: #ff3b5c;
+  --deny-soft: #3a0f19;
+  --confirm: #f5d63d;
+  --confirm-soft: #2f2a0c;
+  --later: #c58bff;
+  --later-soft: #24163a;
+  --code-bg: #0a0809;
+  --font-display: "Rajdhani", "Bahnschrift", "Arial Narrow", sans-serif;
+  --font-ui: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Share Tech Mono", ui-monospace, Consolas, monospace;
+  --r: 2px;
+  --cut: 12px;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { background: var(--bg); color: var(--fg); }
@@ -235,6 +229,146 @@ svg.flow marker path { fill: var(--muted); }
 .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
 footer { color: var(--muted); font-size: 0.82rem; padding-block: 20px 40px; border-top: 1px solid var(--line); }
+
+/* ================= HUD layer ================= */
+body {
+  font-size: 14.5px;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(255, 90, 72, 0.20), transparent 70%),
+    repeating-linear-gradient(90deg, rgba(255, 90, 72, 0.035) 0 1px, transparent 1px 56px),
+    repeating-linear-gradient(0deg, rgba(255, 90, 72, 0.025) 0 1px, transparent 1px 56px),
+    var(--bg);
+  background-attachment: fixed;
+}
+::selection { background: var(--hot); color: var(--bg); }
+h2, h3, .label, .tag, .pill, .btn, .seg button, nav.tabs button, th, .step .node, .brand h1 { font-family: var(--font-display); }
+h2 { font-size: 1.55rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--hot); text-shadow: 0 0 14px rgba(255, 90, 72, 0.45); }
+h3 { font-size: 1.08rem; font-weight: 700; letter-spacing: 0.02em; }
+.label { color: var(--green); font-size: 0.78rem; letter-spacing: 0.14em; }
+.label::before { content: "◇ "; }
+code { color: var(--accent); }
+
+/* clipped-corner shapes */
+.panel, .finding, .persona, .prompt-btn, .bubble, .step .body, .confirm-card, .tbl-wrap, .empty, .callout {
+  clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, var(--cut) 100%, 0 calc(100% - var(--cut)));
+  border-radius: 0;
+}
+.panel { background: linear-gradient(180deg, rgba(255, 90, 72, 0.06), transparent 120px), var(--surface); border-color: var(--line); position: relative; }
+.panel::after { content: ""; position: absolute; right: 0; top: 0; width: var(--cut); height: var(--cut); background: linear-gradient(to top right, transparent calc(50% - 1.5px), var(--hot) calc(50% - 1.5px), var(--hot) 50%, transparent 50%); pointer-events: none; }
+.tbl-wrap { border-color: var(--line); }
+
+/* top HUD bar */
+header.top { background: transparent; border-bottom: 0; }
+.top .wrap { position: relative; padding-block: 18px 14px; }
+.top .wrap::after { content: ""; position: absolute; left: 20px; right: 20px; bottom: 0; height: 1px; background: linear-gradient(90deg, var(--hot) 0 30%, transparent 30% 32%, var(--hot) 32%); opacity: .55; }
+.mark { background: none; border: 1.5px solid var(--green); transform: rotate(45deg); width: 30px; height: 30px; border-radius: 0; margin: 4px; }
+.mark svg { transform: rotate(-45deg); }
+.mark svg path { stroke: var(--green); }
+.brand h1 { font-size: 1.05rem; color: var(--green); letter-spacing: 0.12em; text-transform: uppercase; }
+.brand small { font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted); letter-spacing: 0.04em; }
+.brand .bar { display: block; height: 3px; width: 150px; margin-top: 4px; background: linear-gradient(90deg, var(--green) 0 62%, rgba(63, 224, 143, .25) 62% 100%); }
+.pager { font-family: var(--font-display); color: var(--hot); font-size: 1.35rem; font-weight: 600; letter-spacing: 0.06em; display: grid; justify-items: end; gap: 4px; }
+.pager small { font-size: 0.7rem; letter-spacing: 0.14em; margin-left: 6px; }
+.pager .track { width: 170px; height: 6px; border: 1px solid var(--hot); position: relative; }
+.pager .track i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--hot); width: 20%; transition: width .3s; }
+.tag { border-radius: 0; letter-spacing: 0.1em; background: transparent; }
+.tag.wip { color: var(--confirm); border-color: var(--confirm); background: transparent; }
+.tag.sim { color: var(--accent); border-color: var(--accent); background: transparent; }
+.banner { margin-left: 0; }
+
+/* tabs */
+nav.tabs { background: rgba(13, 10, 12, 0.92); backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); counter-reset: tab; }
+nav.tabs button { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); counter-increment: tab; }
+nav.tabs button::before { content: "0" counter(tab) " "; color: var(--line); font-weight: 500; }
+nav.tabs button[aria-selected="true"] { color: var(--hot); border-bottom-color: var(--hot); text-shadow: 0 0 10px rgba(255, 90, 72, .5); }
+nav.tabs button[aria-selected="true"]::before { color: var(--hot); }
+nav.tabs button .count { background: var(--hot-soft); color: var(--hot); border-radius: 0; }
+
+/* hero: section title like a slide */
+.hero { position: relative; padding: 26px 26px 22px; display: grid; gap: 14px; }
+.hero::before, .hero::after { content: ""; position: absolute; width: 18px; height: 18px; border: 2px solid var(--fg); opacity: .85; }
+.hero::before { left: 0; top: 0; border-right: 0; border-bottom: 0; }
+.hero::after { right: 0; bottom: 0; border-left: 0; border-top: 0; }
+.hero h2 { font-size: clamp(2rem, 5vw, 3.4rem); line-height: 1; letter-spacing: 0.03em; text-shadow: 0 0 22px rgba(255, 90, 72, 0.55), 0 0 2px rgba(255, 90, 72, 0.9); }
+.callout { background: rgba(79, 240, 255, 0.07); border: 1px solid rgba(79, 240, 255, 0.35); border-left: 4px solid var(--accent); padding: 12px 16px; color: var(--accent); font-family: var(--font-display); font-weight: 600; font-size: 1.08rem; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1.35; max-width: 80ch; }
+.lede { color: var(--muted); }
+
+/* controls */
+.btn { border-radius: 0; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.92rem; border-color: var(--accent); color: var(--accent); background: transparent; clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%); }
+.btn:hover { background: var(--accent-soft); border-color: var(--accent); }
+.btn.primary { background: var(--hot); border-color: var(--hot); color: var(--bg); }
+.btn.primary:hover { background: #ff7b6b; }
+.btn.danger { color: var(--deny); border-color: var(--deny); }
+.seg { border-radius: 0; border-color: var(--line); background: transparent; }
+.seg button { text-transform: uppercase; letter-spacing: 0.07em; font-size: 0.92rem; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
+.pill { border-radius: 0; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.78rem; border: 1px solid currentColor; }
+.pill.ghost, .pill.muted { border-color: var(--line); }
+.chip { border-radius: 0; }
+.chip.hit { box-shadow: 0 0 10px rgba(79, 240, 255, .35); }
+input[type="checkbox"] { accent-color: var(--hot); }
+.free input, .filters select, td select, td input[type="text"], .addrule select, .addrule input { border-radius: 0; background: var(--code-bg); border-color: var(--line); }
+.free input:focus, .addrule input:focus { border-color: var(--accent); outline: none; }
+
+/* personas + prompts */
+.persona { background: var(--surface-2); border-color: var(--line); }
+.persona[aria-pressed="true"] { border-color: var(--hot); box-shadow: inset 3px 0 0 var(--hot); background: linear-gradient(90deg, var(--hot-soft), var(--surface-2)); }
+.avatar { border-radius: 0; background: transparent; border: 1.5px solid var(--hot); color: var(--hot); font-family: var(--font-display); clip-path: polygon(0 0, 100% 0, 100% 70%, 70% 100%, 0 100%); }
+.persona .id { color: var(--accent); }
+.prompt-btn { background: var(--surface-2); border-color: var(--line); }
+.prompt-btn:hover:not(:disabled) { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.prompt-btn .needs { color: var(--green); }
+
+/* run */
+.bubble.user { background: var(--hot-soft); color: var(--fg); border: 1px solid var(--hot); }
+.bubble.user .who { color: var(--hot); font-family: var(--font-display); letter-spacing: .1em; text-transform: uppercase; opacity: 1; }
+.bubble.bot { background: rgba(79, 240, 255, 0.06); border: 1px solid rgba(79, 240, 255, 0.35); border-left: 4px solid var(--accent); }
+.bubble.bot .who { color: var(--accent); font-family: var(--font-display); letter-spacing: .1em; text-transform: uppercase; }
+.step::before { background: linear-gradient(var(--line), var(--line)) ; width: 1px; left: 15px; }
+.step .n { border-radius: 0; transform: rotate(45deg) scale(.82); background: var(--bg); border-color: var(--line); }
+.step .n { font-family: var(--font-display); font-size: 0.9rem; }
+.step .n { color: var(--muted); }
+.step .n > * { transform: rotate(-45deg); }
+.step .body { background: var(--surface-2); border-color: var(--line); }
+.step .node { color: var(--green); letter-spacing: 0.12em; font-size: 0.74rem; }
+.step .title { font-weight: 600; }
+details.json summary { color: var(--accent); font-family: var(--font-display); letter-spacing: .08em; text-transform: uppercase; font-size: 0.82rem; }
+pre.code { border-radius: 0; border-color: var(--line); }
+.j-k { color: var(--accent); } .j-s { color: var(--green); } .j-n { color: var(--confirm); } .j-b { color: var(--later); }
+.confirm-card { border-color: var(--confirm); background: rgba(245, 214, 61, 0.07); }
+.empty { border-color: var(--line); font-family: var(--font-display); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+
+/* tables */
+th { background: var(--surface-2); color: var(--hot); letter-spacing: 0.1em; font-size: 0.8rem; }
+td { border-bottom-color: rgba(74, 42, 44, 0.6); }
+tr.clickable:hover td { background: var(--hot-soft); }
+tr.detail td { background: var(--code-bg); }
+
+/* flow */
+svg.flow .node rect.box { fill: var(--surface-2); }
+svg.flow .node.later rect.box { fill: var(--later-soft); }
+svg.flow .node text { font-family: var(--font-ui); }
+svg.flow .node text.t { font-family: var(--font-display); font-size: 15px; letter-spacing: 0.04em; text-transform: uppercase; }
+svg.flow .node.lit rect.box, svg.flow .node.sel rect.box { fill: var(--hot-soft); stroke: var(--hot); filter: drop-shadow(0 0 6px rgba(255, 90, 72, .7)); }
+svg.flow .edge.lit path.line, svg.flow .edge.sel path.line { stroke: var(--hot); filter: drop-shadow(0 0 4px rgba(255, 90, 72, .8)); }
+svg.flow .edge.lit text, svg.flow .edge.sel text { fill: var(--hot); }
+svg.flow .group rect { fill: rgba(255, 90, 72, 0.04); stroke: var(--hot); stroke-dasharray: 2 5; }
+svg.flow .group text { fill: var(--hot); font-family: var(--font-display); font-size: 12px; }
+.legend i { border-radius: 0; }
+.detail h3 { color: var(--hot); font-size: 1.35rem; text-transform: uppercase; text-shadow: 0 0 10px rgba(255, 90, 72, .4); }
+
+/* review */
+.finding { background: var(--surface-2); border-color: var(--line); }
+.finding h3 { color: var(--fg); }
+.toast { border-radius: 0; background: var(--hot); color: var(--bg); font-family: var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* footer micro-text */
+footer { border-top: 0; position: relative; font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--hot); opacity: .75; text-align: center; }
+footer::before { content: ""; display: block; height: 1px; margin: 0 auto 12px; max-width: 1200px; background: linear-gradient(90deg, transparent, var(--hot) 15% 85%, transparent); }
+@media (prefers-reduced-motion: no-preference) {
+  .hero h2 { animation: flick 2.4s ease-out 1; }
+  @keyframes flick { 0%, 6% { opacity: .2 } 3%, 9%, 100% { opacity: 1 } 12% { opacity: .55 } 14% { opacity: 1 } }
+}
 </style>
 
 <header class="top">
@@ -246,12 +380,14 @@ footer { color: var(--muted); font-size: 0.82rem; padding-block: 20px 40px; bord
       <div>
         <h1>MCP Access Console</h1>
         <small>Who may use which MCP tool, from which front door. Logged every time.</small>
+        <span class="bar" aria-hidden="true"></span>
       </div>
     </div>
     <div class="banner">
       <span class="tag wip">Work in progress</span>
       <span class="tag sim">Simulated · no model or instance calls</span>
     </div>
+    <div class="pager" aria-hidden="true" style="margin-left:auto"><div><span id="pageNo">01</span> / 05<small>PAGE</small></div><span class="track"><i id="pageBar"></i></span></div>
   </div>
 </header>
 
@@ -266,10 +402,10 @@ footer { color: var(--muted); font-size: 0.82rem; padding-block: 20px 40px; bord
 </nav>
 
 <main class="wrap">
+<div class="hero" id="hero"><span class="label" id="heroKicker">Simulator</span><h2 id="heroTitle">Run a prompt</h2><p class="callout" id="heroText"></p></div>
 
 <!-- ================= SIMULATOR ================= -->
 <section class="tab" id="tab-simulate">
-  <p class="lede">Pick a person and a front door, then send a prompt. Each step shows what the orchestrator sends to the ServiceNow policy API and what comes back. The access decision uses a copy of the real decision logic. The model and the tool results are scripted.</p>
   <div class="sim-grid">
     <div class="controls">
       <div class="panel">
@@ -302,7 +438,6 @@ footer { color: var(--muted); font-size: 0.82rem; padding-block: 20px 40px; bord
 
 <!-- ================= FLOW ================= -->
 <section class="tab" id="tab-flow" hidden>
-  <p class="lede">Click any box or arrow to see what it is, where it lives in the code, and whether it is built yet. Use the walkthrough to follow one request end to end.</p>
   <div class="flow-grid">
     <div class="panel">
       <div class="svg-wrap"><svg class="flow" id="flowSvg" viewBox="0 0 1160 490" role="img" aria-label="Data flow diagram"></svg></div>
@@ -397,7 +532,6 @@ footer { color: var(--muted); font-size: 0.82rem; padding-block: 20px 40px; bord
 
 <!-- ================= REVIEW ================= -->
 <section class="tab" id="tab-review" hidden>
-  <p class="lede">A review of <em>MCP Access Console — ServiceNow-side Plan</em> against the code in <code>bar-sn-mcp</code> as of 2 October 2026.</p>
   <div class="two">
     <div class="panel">
       <div class="panel-head"><h2>Build status</h2><span class="lede" style="font-size:0.84rem">Plan build steps</span></div>
@@ -420,7 +554,7 @@ footer { color: var(--muted); font-size: 0.82rem; padding-block: 20px 40px; bord
 </section>
 </main>
 
-<footer><div class="wrap">Demo engine mirrors <code>src/server/policy/policy-service.ts</code>. People, records, prompts and tool results are made up. Nothing here calls a model, the sn-mcp server or a ServiceNow instance.</div></footer>
+<footer><div class="wrap">MCP Access Console · work in progress · demo engine mirrors <code>src/server/policy/policy-service.ts</code>. People, records, prompts and tool results are made up. Nothing here calls a model, the sn-mcp server or a ServiceNow instance.</div></footer>
 
 <script>
 (function () {
@@ -805,7 +939,7 @@ function addStep(o) {
   stepNo++;
   var li = document.createElement('li');
   li.className = 'step' + (o.state ? ' s-' + o.state : '');
-  var html = '<span class="n">' + stepNo + '</span><div class="body"><div class="row1"><span class="node">' + esc(o.node) + '</span>' + (o.pill || '') + '</div><div class="title">' + o.title + '</div>';
+  var html = '<span class="n"><span>' + stepNo + '</span></span><div class="body"><div class="row1"><span class="node">' + esc(o.node) + '</span>' + (o.pill || '') + '</div><div class="title">' + o.title + '</div>';
   if (o.text) html += '<div class="text">' + o.text + '</div>';
   (o.json || []).forEach(function (j) { html += '<details class="json"' + (j.open ? ' open' : '') + '><summary>' + esc(j.label) + '</summary><pre class="code">' + jsonHtml(j.data) + '</pre></details>'; });
   html += '</div>';
@@ -1267,7 +1401,22 @@ function runTests() {
 }
 
 /* ------------------------------------------------------------------ tabs + events */
+var HERO = {
+  simulate: ['Simulator', 'Run a prompt', 'Pick a person and a front door, then send a prompt. Each step shows what the orchestrator sends to the policy API and what comes back. Decisions use a copy of the real logic. The model and tool results are scripted.'],
+  flow: ['Architecture', 'Data flow', 'Click any box or arrow to see what it is, where it lives in the code, and whether it is built yet. Use the walkthrough to follow one request end to end.'],
+  policy: ['Admin console', 'Policy', 'Change what an admin would change. It takes effect on the next prompt. Every change moves policy_version.'],
+  log: ['Audit', 'Decision log', 'One row per POST /decision. POST /outcome updates the same row. Click a row for its history.'],
+  review: ['Plan review', 'Plan review', 'The MCP Access Console plan, checked against the code in bar-sn-mcp as of 2 October 2026.']
+};
+var TAB_ORDER = ['simulate', 'flow', 'policy', 'log', 'review'];
+function setHero(name) {
+  var h = HERO[name], i = TAB_ORDER.indexOf(name) + 1;
+  $('#heroKicker').textContent = h[0]; $('#heroTitle').textContent = h[1]; $('#heroText').textContent = h[2];
+  var t = $('#heroTitle'); t.style.animation = 'none'; void t.offsetWidth; t.style.animation = '';
+  $('#pageNo').textContent = '0' + i; $('#pageBar').style.width = (i * 20) + '%';
+}
 function showTab(name) {
+  setHero(name);
   $all('nav.tabs button').forEach(function (b) { b.setAttribute('aria-selected', String(b.getAttribute('data-tab') === name)); });
   $all('section.tab').forEach(function (s) { s.hidden = s.id !== 'tab-' + name; });
   if (name === 'policy') renderPolicy();
@@ -1332,7 +1481,7 @@ $('#walkPrev').addEventListener('click', function () { walk(walkI <= 0 ? 0 : wal
 
 /* ------------------------------------------------------------------ boot */
 $('#catCat').innerHTML = '<option value="">All categories</option>' + Object.keys(CATS).map(function (c) { return '<option value="' + c + '">' + esc(CATS[c][0]) + '</option>'; }).join('');
-renderPersonas(); renderEpSeg(); renderPrompts(); renderRuleForm(); renderFlow(); showNode('svc'); renderReview(); updateLogCount(); renderVersion();
+renderPersonas(); renderEpSeg(); renderPrompts(); renderRuleForm(); renderFlow(); showNode('svc'); renderReview(); updateLogCount(); renderVersion(); setHero('simulate');
 $('#walkTxt').textContent = 'Seven steps, from prompt to log.';
 $('#run').innerHTML = '<div class="empty">Pick a prompt on the left to watch it go through the policy check.<br>Start with Priya\'s P1 incidents, then try Marcus approving a change from Copilot.</div>';
 var h = (location.hash || '').replace('#', '');
