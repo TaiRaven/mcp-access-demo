@@ -543,6 +543,11 @@ footer::before { content: ""; display: block; height: 1px; margin: 0 auto 12px; 
     <div class="findings" id="findings"></div>
   </div>
   <div class="panel">
+    <div class="panel-head"><h2>Proposed: satellite agents</h2><span class="pill later">Later version</span></div>
+    <p class="lede" style="font-size:0.9rem;margin-bottom:12px">Domain agents sit in the capability layer, under the orchestrator. They reason and plan. Every action they propose still goes through the policy check, confirmation and the log.</p>
+    <div class="findings" id="satChanges"></div>
+  </div>
+  <div class="panel">
     <div class="panel-head"><h2>Open decisions</h2></div>
     <div class="tbl-wrap"><table id="openTable"></table></div>
   </div>
@@ -651,6 +656,7 @@ function seed() {
       status: cat === 'workflow' ? 'draft' : 'active'
     };
   });
+  st.tools.forEach(function (t) { t.provider = 'sn-mcp'; });
   st.sets = []; st.items = [];
   function addSet(name, desc, tools) {
     var s = { id: 'ts_' + st.sets.length, name: name, description: desc, active: true };
@@ -665,6 +671,12 @@ function seed() {
     if (r.length) addSet(CATS[c][1] + ' — read', 'Read-only ' + CATS[c][0].toLowerCase() + ' tools.', r);
     if (a.length) addSet(CATS[c][1] + ' — act', CATS[c][0] + ' tools that change records.', a);
   });
+  // Proposed: a satellite agent registered as a capability like any tool. Co-create / prepare: it plans, it never writes.
+  var agentTool = { id: 't_servicenow_agent_triage', name: 'servicenow_agent_triage', label: 'ServiceNow agent: triage', category: 'incident', source: 'servicenow',
+    provider: 'ServiceNow agent (satellite)', pathway: 'co_create', action_class: 'prepare', requires_confirmation: false, risk: 'low',
+    reads: 'incident, kb_knowledge, cmdb_ci', writes: '', status: 'active' };
+  st.tools.push(agentTool);
+  addSet('Incident — agents', 'Satellite agents that triage and propose incident work. Every write they propose goes through the gate.', [agentTool]);
   function setId(n) { return st.sets.filter(function (s) { return s.name === n; })[0].id; }
   function rule(set, type, who, effect, ep, why, validTo) {
     st.ruleSeq++;
@@ -683,6 +695,7 @@ function seed() {
   rule('Script includes — read', 'group', 'g_dev', 'allow', 'ep_copilot', 'Developers work in VS Code.');
   rule('Script includes — act', 'group', 'g_dev', 'allow', 'ep_copilot', 'Developers edit script includes from VS Code, with confirmation.');
   rule('Reports — read', 'group', 'g_dev', 'allow', 'ep_copilot', 'Developer work report for stand-ups.');
+  rule('Incident — agents', 'group', 'g_sd', 'allow', '', 'Service desk may ask the ServiceNow agent to triage. Proposed.');
   st.version = snTime(new Date(Date.now() - 3600e3 * 26));
   // sample history so the log is not empty on first open
   var day = 864e5, now = Date.now();
@@ -778,7 +791,7 @@ function explain(st, identifier, key) {
   var hits = collectRuleHits(st, u.sysId, ep);
   return { denied: null, rows: sortedTools(st).map(function (t) { var d = decideTool(t, hits[t.id]); return { tool: t, d: d }; }) };
 }
-function decide(st, identifier, key, toolName, requestId) {
+function decide(st, identifier, key, toolName, requestId, parentRequestId) {
   var tool = getTool(st, toolName), ep = getEntryPoint(st, key), u = resolveUser(st, identifier), r;
   if (!tool) r = { decision: 'deny', reason: 'unknown tool', rule: null };
   else if (tool.action_class === 'blocked' || tool.status !== 'active') r = decideTool(tool, undefined);
@@ -789,7 +802,7 @@ function decide(st, identifier, key, toolName, requestId) {
   var now = Date.now();
   st.log.push({
     id: 'L' + (++st.seq) + '_' + now, created: now, user: u.sysId || '', user_identifier: identifier || '', entry_point_key: key || '',
-    tool_name: toolName || '', decision: r.decision, reason: r.reason, rule: r.rule || '', request_id: requestId || '',
+    tool_name: toolName || '', decision: r.decision, reason: r.reason, rule: r.rule || '', request_id: requestId || '', parent_request_id: parentRequestId || '',
     outcome: r.decision !== 'deny' ? 'pending' : '', duration_ms: null,
     history: [{ at: snTime(new Date(now)), what: 'decision ' + r.decision + (r.decision !== 'deny' ? ', outcome pending' : '') }]
   });
@@ -860,7 +873,20 @@ var PERSONAS = [
         result: [{ title: 'Create an assignment rule', path: 'platform-administration/assignment-rules/create-assignment-rule.md' }, { title: 'Assignment rules and data lookup', path: 'platform-administration/assignment-rules/overview.md' }],
         answer: 'Go to System Policy > Rules > Assignment, then create a rule on the Incident table with your conditions and the group to assign. The docs page "Create an assignment rule" has the steps.' },
       { text: 'Approve CHG0030012 for tonight\'s release', tool: 'approve_change', args: { number: 'CHG0030012', comments: 'Approved for tonight' },
-        result: { number: 'CHG0030012', approval: 'approved' }, answer: 'CHG0030012 is approved.' }
+        result: { number: 'CHG0030012', approval: 'approved' }, answer: 'CHG0030012 is approved.' },
+      { text: 'Triage INC0010031 and suggest a fix', tool: 'servicenow_agent_triage', args: { number: 'INC0010031', goal: 'Find the likely cause and route it' },
+        agent: { name: 'ServiceNow agent', plan: [
+          { tool: 'get_incident_by_number', why: 'Read the incident', args: { number: 'INC0010031' },
+            result: { number: 'INC0010031', short_description: 'Email delayed for London office', cmdb_ci: 'Mail relay connector', opened_at: '2026-10-02 07:41', priority: '1 - Critical' } },
+          { tool: 'list_articles', why: 'Look for a known fix', args: { query: 'mail delay relay connector', limit: 5 },
+            result: [{ number: 'KB0010217', short_description: 'Mail queue backs up when the relay connector certificate expires' }] },
+          { tool: 'list_incidents', why: 'Check for related open incidents', args: { query: 'active=true^cmdb_ci.name=Mail relay connector' },
+            result: [{ number: 'INC0010031' }, { number: 'INC0010034', short_description: 'Shared mailbox not receiving' }] },
+          { tool: 'update_incident', why: 'Proposed write: route to Messaging with triage notes', args: { number: 'INC0010031', assignment_group: 'Messaging', work_notes: 'Likely expired relay connector certificate (KB0010217). Related: INC0010034.' },
+            result: { number: 'INC0010031', assignment_group: 'Messaging', state: 'In Progress' } }
+        ] },
+        triage: 'the likely cause is the expired relay connector certificate in KB0010217, and INC0010034 is probably related.',
+        answer: 'INC0010031 looks like the expired relay connector certificate described in KB0010217. INC0010034 probably has the same cause. I routed INC0010031 to Messaging with those triage notes.' }
     ] },
   { id: 'marcus', name: 'Marcus Lee', initials: 'ML', role: 'Change manager', ident: 'marcus.lee@example.com', groups: 'Change Advisory Board · itil', ep: 'claude',
     prompts: [
@@ -1020,6 +1046,8 @@ async function runPrompt(p) {
     await sleep(350);
   }
 
+  if (p.agent) { await runAgent(p, reqId, pol, persona, key, ident, fail); return finish(); }
+
   var ms = fail ? 3000 + Math.round(Math.random() * 400) : 180 + Math.round(Math.random() * 700);
   var result = fail ? { error: 'ServiceNow returned 503 Service Unavailable', status: 503 } : p.result;
   addStep({ node: 'sn-mcp server → instance', state: fail ? 'deny' : 'allow', pill: fail ? '<span class="pill deny">error</span>' : '<span class="pill allow">' + ms + ' ms</span>',
@@ -1036,7 +1064,7 @@ async function runPrompt(p) {
   finish();
 
   function finish() {
-    var rows = S.log.filter(function (l) { return l.request_id === reqId; }).length;
+    var rows = S.log.filter(function (l) { return l.request_id === reqId || l.parent_request_id === reqId; }).length;
     var f = document.createElement('p');
     f.className = 'lede';
     f.style.fontSize = '0.84rem';
@@ -1045,6 +1073,72 @@ async function runPrompt(p) {
     updateLogCount(); renderLog();
     setBusy(false);
   }
+}
+function appendJson(li, label, data, open) {
+  var d = document.createElement('details');
+  d.className = 'json'; if (open) d.open = true;
+  d.innerHTML = '<summary>' + esc(label) + '</summary><pre class="code">' + jsonHtml(data) + '</pre>';
+  $('.body', li).appendChild(d);
+}
+function askConfirm(li, tool, args, persona) {
+  var box = document.createElement('div');
+  box.className = 'confirm-card';
+  box.innerHTML = '<div><strong>' + esc(tool) + '</strong> · proposed by the agent<br><span class="mono">' + esc(JSON.stringify(args)) + '</span></div><div class="acts"><button class="btn primary" data-c="yes">Confirm</button><button class="btn" data-c="no">Decline</button></div>';
+  $('.body', li).appendChild(box);
+  return new Promise(function (res) {
+    $all('[data-c]', box).forEach(function (b) {
+      b.addEventListener('click', function () { var ok = b.getAttribute('data-c') === 'yes'; box.innerHTML = '<strong>' + (ok ? 'Confirmed' : 'Declined') + ' by ' + esc(persona.name) + '.</strong>'; res(ok); });
+    });
+  });
+}
+/** Proposed satellite pattern: the agent plans in the agentic zone; the orchestrator runs every step through the deterministic gate. */
+async function runAgent(p, reqId, pol, persona, key, ident, fail) {
+  var a = p.agent, allowed = pol.tools.map(function (t) { return t.name; }), bypass = $('#optBypass').checked;
+  addStep({ node: 'Satellite agent · ' + a.name, state: 'later', pill: '<span class="pill later">proposed</span>', title: 'The orchestrator hands the task to the ServiceNow agent',
+    text: 'The agent reasons about the task: read, compare, plan. It gets this person\'s allowed tools, not tools of its own, and it cannot call ServiceNow itself. It returns a plan.',
+    json: [{ label: 'Task sent to the agent', data: { parent_request_id: reqId, user: ident, entry_point: key, task: p.args, allowed_tools: allowed } }] });
+  await sleep(400);
+  addStep({ node: 'Satellite agent · ' + a.name, state: 'later', title: 'Returns a plan of ' + a.plan.length + ' tool calls',
+    text: '<span class="chips">' + a.plan.map(function (st) { var t = getTool(S, st.tool), w = t && t.pathway === 'act'; return '<span class="chip' + (w ? ' c' : '') + '">' + esc(st.tool) + (w ? ' · write' : '') + '</span>'; }).join('') + '</span><br>The orchestrator now runs each step through the same gate as any other call.',
+    json: [{ label: 'Plan', data: a.plan.map(function (st) { return { tool: st.tool, why: st.why, arguments: st.args }; }) }] });
+  await sleep(400);
+  var declined = false, failed = false, total = 0;
+  for (var i = 0; i < a.plan.length; i++) {
+    var st = a.plan[i], cid = reqId + '.' + (i + 1);
+    if (allowed.indexOf(st.tool) === -1 && !bypass) {
+      addStep({ node: 'Orchestrator gate', state: 'deny', pill: '<span class="pill deny">dropped</span>', title: 'Step ' + (i + 1) + ': <code>' + esc(st.tool) + '</code> is not in this person\'s tools',
+        text: 'The agent cannot widen access. The orchestrator drops this step. Nothing reaches ServiceNow.' });
+      continue;
+    }
+    var d = decide(S, ident, key, st.tool, cid, reqId);
+    updateLogCount();
+    var cls = d.decision === 'allow' ? 'allow' : d.decision === 'deny' ? 'deny' : 'confirm';
+    var li = addStep({ node: 'Orchestrator gate → Decision log', state: cls, pill: decisionPill(d.decision), title: 'Step ' + (i + 1) + ': ' + esc(st.why),
+      text: '<code>' + esc(st.tool) + '</code> · ' + esc(d.reason) + (d.rule ? ' · rule <code>' + esc(d.rule) + '</code>' : '') + '. Logged as <code>' + cid + '</code> under parent <code>' + reqId + '</code>.',
+      json: [{ label: 'POST ' + API + '/decision', data: { user: ident, entry_point: key, tool: st.tool, request_id: cid, parent_request_id: reqId } }] });
+    if (d.decision === 'deny') continue;
+    if (d.decision === 'confirm_required') {
+      var ok = await askConfirm(li, st.tool, st.args, persona);
+      recordOutcome(S, cid, ok ? 'confirmed' : 'declined', null);
+      if (!ok) { declined = true; continue; }
+    }
+    var bad = fail && i === a.plan.length - 1;
+    var ms = bad ? 3000 : 120 + Math.round(Math.random() * 450);
+    total += ms;
+    recordOutcome(S, cid, bad ? 'error' : 'success', ms);
+    if (bad) failed = true;
+    appendJson(li, (bad ? 'Error' : 'Result') + ' · ' + ms + ' ms · outcome ' + (bad ? 'error' : 'success'), bad ? { error: 'ServiceNow returned 503 Service Unavailable', status: 503 } : st.result, false);
+    await sleep(300);
+  }
+  var outcome = failed ? 'error' : 'success';
+  recordOutcome(S, reqId, outcome, total);
+  addStep({ node: 'Policy API → Decision log', state: failed ? 'deny' : 'allow', pill: outcomePill(outcome), title: 'Close the parent request',
+    text: 'One parent row for the agent task, one child row per gated step. An auditor can see the whole plan and who confirmed the write.',
+    json: [{ label: 'POST ' + API + '/outcome', data: { request_id: reqId, outcome: outcome, duration_ms: total } }] });
+  await sleep(300);
+  var msg = failed ? 'The last step failed (503), so INC0010031 was not updated. My triage: ' + p.triage
+    : declined ? 'I left INC0010031 unchanged. My triage: ' + p.triage : p.answer;
+  bot(msg, 'ServiceNow agent');
 }
 function freePrompt(text) {
   var tool = 'docs_search';
@@ -1098,8 +1192,8 @@ function renderToolTable() {
   });
   $('#catCount').textContent = rows.length + ' of ' + S.tools.length + ' tools';
   function sel(t, field, opts) { return '<select data-tool="' + t.id + '" data-field="' + field + '" aria-label="' + field + '">' + opts.map(function (o) { return '<option' + (t[field] === o ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select>'; }
-  $('#toolTable').innerHTML = '<tr><th>Name</th><th>Category</th><th>Status</th><th>Pathway</th><th>Action class</th><th>Confirm</th><th>Risk</th><th>Writes</th></tr>' + rows.map(function (t) {
-    return '<tr class="' + (t.status === 'active' && t.action_class !== 'blocked' ? '' : 'inactive') + '"><td class="mono">' + esc(t.name) + '</td><td>' + esc(CATS[t.category] ? CATS[t.category][0] : t.category) + '</td><td>' + sel(t, 'status', ['draft', 'active', 'retired']) + '</td><td>' + sel(t, 'pathway', ['ask', 'co_create', 'act']) + '</td><td>' + sel(t, 'action_class', ['read', 'prepare', 'execute', 'blocked']) + '</td><td><input type="checkbox" aria-label="Requires confirmation" data-tool="' + t.id + '" data-field="requires_confirmation"' + (t.requires_confirmation ? ' checked' : '') + '></td><td>' + sel(t, 'risk', ['low', 'medium', 'high']) + '</td><td class="mono" style="font-size:0.74rem">' + esc(t.writes) + '</td></tr>';
+  $('#toolTable').innerHTML = '<tr><th>Name</th><th>Category</th><th>Status</th><th>Pathway</th><th>Action class</th><th>Confirm</th><th>Risk</th><th>Provider</th><th>Writes</th></tr>' + rows.map(function (t) {
+    return '<tr class="' + (t.status === 'active' && t.action_class !== 'blocked' ? '' : 'inactive') + '"><td class="mono">' + esc(t.name) + '</td><td>' + esc(CATS[t.category] ? CATS[t.category][0] : t.category) + '</td><td>' + sel(t, 'status', ['draft', 'active', 'retired']) + '</td><td>' + sel(t, 'pathway', ['ask', 'co_create', 'act']) + '</td><td>' + sel(t, 'action_class', ['read', 'prepare', 'execute', 'blocked']) + '</td><td><input type="checkbox" aria-label="Requires confirmation" data-tool="' + t.id + '" data-field="requires_confirmation"' + (t.requires_confirmation ? ' checked' : '') + '></td><td>' + sel(t, 'risk', ['low', 'medium', 'high']) + '</td><td style="font-size:0.8rem">' + esc(t.provider || '') + '</td><td class="mono" style="font-size:0.74rem">' + esc(t.writes) + '</td></tr>';
   }).join('');
 }
 function renderChecker() {
@@ -1132,9 +1226,9 @@ function renderLog() {
   var head = '<tr><th>Created (UTC)</th><th>Decision</th><th>Tool</th><th>User</th><th>Entry point</th><th>Outcome</th><th>Reason</th><th>Duration</th></tr>';
   if (!rows.length) { $('#logTable').innerHTML = head + '<tr><td colspan="8"><div class="empty">No rows match. Run a prompt to write one.</div></td></tr>'; return; }
   $('#logTable').innerHTML = head + rows.map(function (l) {
-    var r = '<tr class="clickable" data-log="' + l.id + '"><td class="num">' + snTime(new Date(l.created)) + (l.sample ? ' <span class="pill ghost">sample</span>' : '') + '</td><td>' + decisionPill(l.decision) + '</td><td class="mono">' + esc(l.tool_name) + '</td><td>' + (l.user ? esc(userName(l.user)) : '<span class="pill muted">empty</span> ') + '<br><span class="mono" style="color:var(--muted)">' + esc(l.user_identifier) + '</span></td><td class="mono">' + esc(l.entry_point_key) + '</td><td>' + outcomePill(l.outcome) + '</td><td>' + esc(l.reason) + '</td><td class="num">' + (l.duration_ms != null ? l.duration_ms + ' ms' : '') + '</td></tr>';
+    var r = '<tr class="clickable" data-log="' + l.id + '"><td class="num">' + snTime(new Date(l.created)) + (l.sample ? ' <span class="pill ghost">sample</span>' : '') + '</td><td>' + decisionPill(l.decision) + '</td><td class="mono">' + (l.parent_request_id ? '<span style="color:var(--later)">↳ </span>' : '') + esc(l.tool_name) + '</td><td>' + (l.user ? esc(userName(l.user)) : '<span class="pill muted">empty</span> ') + '<br><span class="mono" style="color:var(--muted)">' + esc(l.user_identifier) + '</span></td><td class="mono">' + esc(l.entry_point_key) + '</td><td>' + outcomePill(l.outcome) + '</td><td>' + esc(l.reason) + '</td><td class="num">' + (l.duration_ms != null ? l.duration_ms + ' ms' : '') + '</td></tr>';
     if (openRow === l.id) {
-      r += '<tr class="detail"><td colspan="8"><div class="two"><div><div class="label">History</div><ul style="margin:6px 0 0;padding-left:18px;font-size:0.86rem">' + l.history.map(function (h) { return '<li><span class="mono">' + esc(h.at) + '</span> ' + esc(h.what) + '</li>'; }).join('') + '</ul></div><div><div class="label">Row</div><pre class="code">' + jsonHtml({ user: l.user || '', user_identifier: l.user_identifier, entry_point_key: l.entry_point_key, tool_name: l.tool_name, decision: l.decision, reason: l.reason, rule: l.rule, request_id: l.request_id, outcome: l.outcome, duration_ms: l.duration_ms }) + '</pre></div></div></td></tr>';
+      r += '<tr class="detail"><td colspan="8"><div class="two"><div><div class="label">History</div><ul style="margin:6px 0 0;padding-left:18px;font-size:0.86rem">' + l.history.map(function (h) { return '<li><span class="mono">' + esc(h.at) + '</span> ' + esc(h.what) + '</li>'; }).join('') + '</ul></div><div><div class="label">Row</div><pre class="code">' + jsonHtml({ user: l.user || '', user_identifier: l.user_identifier, entry_point_key: l.entry_point_key, tool_name: l.tool_name, decision: l.decision, reason: l.reason, rule: l.rule, request_id: l.request_id, parent_request_id: l.parent_request_id || '', outcome: l.outcome, duration_ms: l.duration_ms }) + '</pre></div></div></td></tr>';
     }
     return r;
   }).join('');
@@ -1147,6 +1241,7 @@ var NODES = {
   copilot: { x: 190, y: 240, w: 140, h: 52, t: 'GitHub Copilot', s: 'entry point', st: 'todo' },
   orch: { x: 380, y: 120, w: 170, h: 190, t: 'Orchestrator', s: 'filters tools, asks to confirm', st: 'later' },
   mcp: { x: 380, y: 400, w: 170, h: 56, t: 'sn-mcp server', s: '80 tools', st: 'built' },
+  sat: { x: 20, y: 380, w: 180, h: 60, t: 'ServiceNow agent', s: 'satellite · plans, never writes', st: 'later' },
   api: { x: 620, y: 30, w: 180, h: 56, t: 'Policy API', s: 'Scripted REST · 5 routes', st: 'todo' },
   svc: { x: 620, y: 150, w: 180, h: 56, t: 'PolicyService', s: 'deterministic rules', st: 'written' },
   log: { x: 620, y: 280, w: 180, h: 56, t: 'Decision log', s: 'one row per decision', st: 'built' },
@@ -1171,6 +1266,7 @@ var EDGES = [
   { id: 'e_st', a: ['svc', 'r'], b: ['tables', 'l', .55], label: 'reads' },
   { id: 'e_sl', a: ['svc', 'b'], b: ['log', 't'], label: 'writes' },
   { id: 'e_om', a: ['orch', 'b'], b: ['mcp', 't'], label: 'allowed calls only' },
+  { id: 'e_os', a: ['orch', 'l', .95], b: ['sat', 'r'], label: 'task ⇄ plan', dash: true },
   { id: 'e_mr', a: ['mcp', 'r'], b: ['records', 'l'], label: 'Table API' },
   { id: 'e_ms', a: ['mcp', 'r', .2], b: ['api', 'l', .8], label: 'POST /catalog/sync', dash: true },
   { id: 'e_at', a: ['admin', 't'], b: ['roles', 'b', .3], label: 'manage', thru: true },
@@ -1201,6 +1297,7 @@ var DETAIL = {
   api: { h: 'Policy API (Scripted REST)', p: 'Not built yet. Only the orchestrator role may call it. The tables stay off the Table API, so this is the only contract.', kv: [['Base path', API], ['Role', SCOPE + '.orchestrator']], list: ['GET /policy?user=&entry_point= — allowed tools, not logged', 'POST /decision — allow / deny / confirm_required, logged', 'POST /outcome — updates the log row', 'GET /catalog — for drift checks', 'POST /catalog/sync — upsert from sn-mcp'] },
   svc: { h: 'PolicyService', p: 'Written as a server module. Not yet exposed as a Script Include or called by a REST route. No model involved.', kv: [['File', 'src/server/policy/policy-service.ts']], list: ['1. Tool unknown, blocked, retired or draft → deny', '2. Entry point unknown or inactive → deny', '3. User unknown, inactive or ambiguous → deny', '4. Any matching deny rule → deny (deny wins)', '5. Any matching allow → allow, or confirm_required', '6. Nothing matched → deny'] },
   log: { h: 'Decision log', p: 'One row per POST /decision. POST /outcome updates it by request_id. Nobody edits it in the console.', kv: [['Table', SCOPE + '_decision_log'], ['File', 'src/fluent/tables/decision-log.now.ts'], ['Outcomes', 'pending, success, error, cancelled, confirmed, declined']] },
+  sat: { h: 'Satellite agent (proposed)', p: 'A ServiceNow domain agent. The orchestrator hands it co-create work: triage, compare, draft, plan. It is registered in the tool catalog like any tool (pathway co_create, action class prepare) and granted through tool sets.', kv: [['Catalog row', 'servicenow_agent_triage'], ['Tool set', 'Incident — agents'], ['Provider', 'ServiceNow agent (satellite)']], list: ['Gets the person\'s allowed tools, never tools of its own.', 'Returns a plan. It cannot call ServiceNow or the policy API itself.', 'The orchestrator runs every planned step through POST /decision and confirmation.', 'Each step is logged with parent_request_id, so one task shows as one tree in the log.'] },
   records: { h: 'Instance records', p: 'The ServiceNow data the tools read and write: incidents, changes, knowledge, script includes and so on. The sn-mcp server reaches them through the Table API with its own account.' },
   catalog: { h: 'Tool catalog', p: 'One row per MCP tool. Each row is the tool\'s capability contract.', kv: [['Table', SCOPE + '_tool'], ['File', 'src/fluent/tables/tool.now.ts'], ['Audit', 'on']], list: ['pathway: ask, co_create, act', 'action_class: read, prepare, execute, blocked', 'requires_confirmation, risk, reads, writes, owner', 'status: draft, active, retired. Only active tools can be granted.'] },
   sets: { h: 'Tool sets and items', p: 'Named bundles of tools. Rules grant sets, never single tools.', kv: [['Tables', SCOPE + '_tool_set, ' + SCOPE + '_tool_set_item'], ['File', 'src/fluent/tables/tool-set.now.ts']] },
@@ -1216,6 +1313,7 @@ var EDGE_DETAIL = {
   e_oa: 'GET /policy before the conversation (cached). POST /decision before each tool call. POST /outcome after.',
   e_as: 'Each route is a thin wrapper around a PolicyService function.', e_st: 'Reads tools, sets, items, entry points and rules. Also sys_user, group members and roles (cross-scope reads).',
   e_sl: 'decide() inserts a row. recordOutcome() updates it.', e_om: 'Only tools the policy allowed, after confirmation where needed.', e_mr: 'Table API calls with the sn-mcp service account.',
+  e_os: 'The orchestrator sends a task and the person\'s allowed tools. The agent sends back a plan. Execution stays with the orchestrator.',
   e_ms: 'One-off or scheduled sync of the 80 tool names into the catalog. New tools arrive as draft.', e_at: 'Admins manage tables 1–5 in the console.', e_al: 'Admins and auditors read the log.', e_ut: 'Auditors read every table.'
 };
 var WALK = [
@@ -1224,6 +1322,7 @@ var WALK = [
   { n: ['orch', 'api', 'svc', 'rules', 'sets', 'catalog', 'eps'], e: ['e_oa', 'e_as', 'e_st'], t: '3. It asks ServiceNow which tools this person may use from this entry point. This version builds this part.' },
   { n: ['orch', 'api', 'svc'], e: ['e_oa', 'e_as'], t: '4a. It shows the model only those tools, and checks again with POST /decision before each call.' },
   { n: ['orch', 'mcp', 'records'], e: ['e_om', 'e_mr'], t: '4b. Allowed calls go to the sn-mcp server, which reads or writes instance records.' },
+  { n: ['orch', 'sat'], e: ['e_os'], t: '4c. Proposed: for co-create work the orchestrator hands a task to a satellite agent. The agent returns a plan, and each step goes back through the same gate as 4a.' },
   { n: ['svc', 'log'], e: ['e_sl'], t: '5. Each decision and its outcome are logged back to ServiceNow. This version builds this part.' },
   { n: ['admin', 'auditor', 'log', 'roles'], e: ['e_at', 'e_al', 'e_ut'], t: '6. Admins manage the policy tables. Auditors read everything, including the log.' }
 ];
@@ -1282,7 +1381,8 @@ var BUILD = [
   ['8', 'Deploy to PDI', 'todo', 'Build output exists. Deploy not confirmed'],
   ['9', 'Sync the catalog', 'todo', 'Needs step 5'],
   ['10', 'Tests', 'todo', 'Logic tests pass in this demo; instance tests need steps 3, 5 and 8'],
-  ['11', 'Phase 2: Access checker', 'later', 'Previewed on the Policy tab']
+  ['11', 'Phase 2: Access checker', 'later', 'Previewed on the Policy tab'],
+  ['—', 'Satellite agents', 'later', 'Proposed. Shown in the demo: Priya → "Triage INC0010031"']
 ];
 var FINDINGS = [
   { sev: ['Medium', 'confirm'], h: 'Most denials will never reach the decision log.',
@@ -1319,6 +1419,13 @@ var FINDINGS = [
     p: 'Already in the plan. Anyone with the orchestrator role can claim any email. Fine on a personal dev instance only.',
     fix: 'Keep it on the PDI until the sign-in work proves identity.' }
 ];
+var SAT_CHANGES = [
+  ['Register satellites as catalog rows', 'Each satellite agent gets a tool row with pathway co_create and action class prepare, and is granted through tool sets like any tool. The co_create and prepare values exist today but nothing uses them.'],
+  ['Add a provider to each tool', 'The source choice only knows servicenow and docs. Add a provider reference (which server or satellite owns the tool) so other satellites can sync into the same catalog.'],
+  ['Link plan steps to their task', 'Add parent_request_id to the decision log and to POST /decision. One task then reads as one tree: the agent row, then every gated step under it.'],
+  ['Only the orchestrator calls /decision', 'Satellites never call the policy API and never hold write credentials. They return plans. This keeps the trust boundary in one place.'],
+  ['Finish the capability contract', 'Add data_quality (what the tool needs to be reliable) and evaluation (how it is tested) to the tool catalog.']
+];
 var OPEN = [
   ['Log retention', '90 days, with a table cleaner (sys_auto_flush) added now. One row per tool call adds up fast.'],
   ['Which instance', 'Stay on the PDI until the REST API is built and tests 1–11 pass there.'],
@@ -1332,6 +1439,9 @@ function renderReview() {
   $('#findings').innerHTML = FINDINGS.map(function (f, i) {
     return '<div class="finding"><div class="row1"><span class="pill ' + f.sev[1] + '">' + f.sev[0] + '</span><h3>' + (i + 1) + '. ' + esc(f.h) + '</h3></div><p>' + esc(f.p) + '</p><p class="fix"><strong>Fix:</strong> ' + esc(f.fix) + '</p>' + (f.try ? '<p class="try"><button class="linkish" data-try="' + f.try[0] + ':' + f.try[1] + '">Try it: ' + esc(f.try[2]) + '</button></p>' : '') + '</div>';
   }).join('');
+  $('#satChanges').innerHTML = SAT_CHANGES.map(function (c, i) {
+    return '<div class="finding"><div class="row1"><span class="pill later">Proposed</span><h3>' + (i + 1) + '. ' + esc(c[0]) + '</h3></div><p>' + esc(c[1]) + '</p></div>';
+  }).join('') + '<p class="try"><button class="linkish" data-try="priya:4">Try it: triage INC0010031 as Priya</button></p>';
   $('#openTable').innerHTML = '<tr><th>Decision</th><th>Recommendation</th></tr>' + OPEN.map(function (o) { return '<tr><td style="white-space:nowrap">' + esc(o[0]) + '</td><td>' + esc(o[1]) + '</td></tr>'; }).join('');
   runTests();
 }
@@ -1385,7 +1495,15 @@ function runTests() {
       syncCatalog(st, [{ name: 'list_incidents', category: 'incident' }]);
       return draftDenied && t.risk === 'high' && t.status === 'retired';
     }],
-    ['11', 'Admin edits rules; auditor reads only; nobody edits the log', null]
+    ['11', 'Admin edits rules; auditor reads only; nobody edits the log', null],
+    ['S1', 'Satellite plan: a write step still needs confirmation and logs its parent', function () {
+      var st = fresh(); var d = decide(st, 'priya.shah@example.com', 'claude', 'update_incident', 'p.4', 'p');
+      return d.decision === 'confirm_required' && st.log[0].parent_request_id === 'p';
+    }],
+    ['S2', 'Satellite cannot widen access: no agent for people without the set', function () {
+      var st = fresh(); var a = names(getEffectiveTools(st, 'alex.kim@example.com', 'copilot'));
+      return a.indexOf('servicenow_agent_triage') === -1 && names(getEffectiveTools(st, 'priya.shah@example.com', 'claude')).indexOf('servicenow_agent_triage') !== -1;
+    }]
   ];
   $('#testTable').innerHTML = '<tr><th>#</th><th>Test from the plan</th><th>Result</th></tr>' + T.map(function (t) {
     var res;
@@ -1477,7 +1595,7 @@ $('#walkPrev').addEventListener('click', function () { walk(walkI <= 0 ? 0 : wal
 /* ------------------------------------------------------------------ boot */
 $('#catCat').innerHTML = '<option value="">All categories</option>' + Object.keys(CATS).map(function (c) { return '<option value="' + c + '">' + esc(CATS[c][0]) + '</option>'; }).join('');
 renderPersonas(); renderEpSeg(); renderPrompts(); renderRuleForm(); renderFlow(); showNode('svc'); renderReview(); updateLogCount(); renderVersion(); setHero('simulate');
-$('#walkTxt').textContent = 'Seven steps, from prompt to log.';
+$('#walkTxt').textContent = 'Eight steps, from prompt to log.';
 $('#run').innerHTML = '<div class="empty">Pick a prompt on the left to watch it go through the policy check.<br>Start with Priya\'s P1 incidents, then try Marcus approving a change from Copilot.</div>';
 var h = (location.hash || '').replace('#', '');
 if (['simulate', 'flow', 'policy', 'log', 'review'].indexOf(h) !== -1) showTab(h);
