@@ -1,0 +1,1346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>MCP Access Console Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a control-room tool. Sticky tab bar, then one working surface per tab.
+   Status is carried by form (pills, dashed outlines) so a viewer can scan it. */
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --surface-2: #e9edf3;
+  --line: #d5dbe5;
+  --fg: #172033;
+  --muted: #586379;
+  --accent: #2a4bd1;
+  --accent-soft: #e2e8fd;
+  --allow: #1c7548;
+  --allow-soft: #ddf1e5;
+  --deny: #b2213a;
+  --deny-soft: #f8e1e5;
+  --confirm: #8f5600;
+  --confirm-soft: #fbedd5;
+  --later: #6d4fb0;
+  --later-soft: #ece6f8;
+  --code-bg: #f6f8fb;
+  --font-ui: "Hanken Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --r: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10141c; --surface: #181e2a; --surface-2: #212938; --line: #2e3749; --fg: #e5e9f1; --muted: #98a2b6;
+    --accent: #8ea2ff; --accent-soft: #222b4f; --allow: #62d197; --allow-soft: #15301f; --deny: #ff8193; --deny-soft: #3a1820;
+    --confirm: #f2b65c; --confirm-soft: #382810; --later: #bba1f3; --later-soft: #2a2142; --code-bg: #131925; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10141c; --surface: #181e2a; --surface-2: #212938; --line: #2e3749; --fg: #e5e9f1; --muted: #98a2b6;
+  --accent: #8ea2ff; --accent-soft: #222b4f; --allow: #62d197; --allow-soft: #15301f; --deny: #ff8193; --deny-soft: #3a1820;
+  --confirm: #f2b65c; --confirm-soft: #382810; --later: #bba1f3; --later-soft: #2a2142; --code-bg: #131925; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--fg); }
+body { font-family: var(--font-ui); font-size: 15px; line-height: 1.5; margin: 0; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+h2 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.01em; }
+h3 { font-size: 1rem; font-weight: 600; }
+p { margin: 0; }
+button, select, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 20px; }
+header.top { background: var(--surface); border-bottom: 1px solid var(--line); }
+.top .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding-block: 16px; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.mark { width: 34px; height: 34px; border-radius: 8px; background: var(--fg); display: grid; place-items: center; }
+.mark svg { width: 20px; height: 20px; }
+.brand h1 { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; }
+.brand small { display: block; color: var(--muted); font-size: 0.8rem; }
+.banner { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; }
+.tag { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: var(--surface); white-space: nowrap; }
+.tag.wip { color: var(--confirm); border-color: var(--confirm); background: var(--confirm-soft); }
+.tag.sim { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+
+nav.tabs { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
+nav.tabs .wrap { display: flex; gap: 4px; overflow-x: auto; padding-block: 0; }
+nav.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 12px 14px; font-weight: 600; color: var(--muted); cursor: pointer; white-space: nowrap; }
+nav.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+nav.tabs button .count { font-family: var(--font-mono); font-size: 0.75rem; background: var(--surface-2); padding: 1px 6px; border-radius: 6px; margin-left: 6px; }
+
+main { padding-block: 24px 56px; }
+section.tab { display: grid; gap: 20px; }
+.lede { color: var(--muted); max-width: 72ch; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; min-width: 0; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
+.label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+.pill { display: inline-flex; align-items: center; gap: 5px; font-size: 0.74rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent; }
+.pill.allow { background: var(--allow-soft); color: var(--allow); }
+.pill.deny { background: var(--deny-soft); color: var(--deny); }
+.pill.confirm { background: var(--confirm-soft); color: var(--confirm); }
+.pill.later { background: var(--later-soft); color: var(--later); }
+.pill.info { background: var(--accent-soft); color: var(--accent); }
+.pill.muted { background: var(--surface-2); color: var(--muted); }
+.pill.ghost { border-color: var(--line); color: var(--muted); }
+
+.btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); padding: 7px 12px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 0.88rem; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn.danger { color: var(--deny); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: none; padding: 7px 14px; cursor: pointer; font-weight: 600; font-size: 0.88rem; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-family: var(--font-mono); font-size: 0.76rem; padding: 2px 7px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--line); }
+.chip.c { border-color: var(--confirm); color: var(--confirm); background: var(--confirm-soft); }
+.chip.hit { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
+/* ---- simulator ---- */
+.sim-grid { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .sim-grid { grid-template-columns: 1fr; } }
+.controls { display: grid; gap: 18px; }
+.personas { display: grid; gap: 8px; }
+.persona { text-align: left; display: grid; grid-template-columns: 38px 1fr; gap: 2px 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; }
+.persona[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.avatar { grid-row: span 3; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 0.85rem; background: var(--surface-2); color: var(--fg); }
+.persona strong { font-size: 0.95rem; }
+.persona .meta { font-size: 0.8rem; color: var(--muted); }
+.persona .id { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); overflow-wrap: anywhere; }
+.prompts { display: grid; gap: 6px; }
+.prompt-btn { text-align: left; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; display: grid; gap: 2px; }
+.prompt-btn:hover:not(:disabled) { border-color: var(--accent); }
+.prompt-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.prompt-btn .needs { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
+.free { display: flex; gap: 6px; }
+.free input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+.opts { display: grid; gap: 6px; font-size: 0.88rem; }
+.opts label { display: flex; gap: 8px; align-items: flex-start; }
+.opts input { margin-top: 4px; }
+
+.run { display: grid; gap: 14px; }
+.bubble { padding: 12px 14px; border-radius: 10px; max-width: 70ch; }
+.bubble.user { background: var(--fg); color: var(--bg); justify-self: end; }
+.bubble.user .who { font-size: 0.75rem; opacity: 0.75; margin-bottom: 2px; }
+.bubble.bot { background: var(--surface); border: 1px solid var(--line); }
+.bubble.bot .who { font-size: 0.75rem; color: var(--muted); margin-bottom: 4px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.step { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; position: relative; padding-bottom: 14px; }
+.step::before { content: ""; position: absolute; left: 14px; top: 30px; bottom: 0; width: 2px; background: var(--line); }
+.step:last-child::before { display: none; }
+.step .n { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-family: var(--font-mono); font-size: 0.78rem; font-weight: 500; background: var(--surface); border: 1px solid var(--line); z-index: 1; }
+.step.s-allow .n { border-color: var(--allow); color: var(--allow); }
+.step.s-deny .n { border-color: var(--deny); color: var(--deny); }
+.step.s-confirm .n { border-color: var(--confirm); color: var(--confirm); }
+.step.s-later .n { border-color: var(--later); color: var(--later); border-style: dashed; }
+.step .body { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; animation: rise .25s ease-out; }
+@keyframes rise { from { transform: translateY(4px); opacity: .4; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .step .body { animation: none; } }
+.step .row1 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.step .node { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+.step .title { font-weight: 600; }
+.step .text { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+.step .text code { color: var(--fg); }
+details.json { margin-top: 8px; }
+details.json summary { cursor: pointer; font-size: 0.8rem; font-weight: 600; color: var(--accent); }
+pre.code { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow-x: auto; font-family: var(--font-mono); font-size: 0.76rem; line-height: 1.55; margin: 6px 0 0; white-space: pre; }
+.j-k { color: var(--accent); } .j-s { color: var(--allow); } .j-n { color: var(--confirm); } .j-b { color: var(--later); }
+.confirm-card { border: 1px solid var(--confirm); background: var(--confirm-soft); border-radius: 8px; padding: 12px; margin-top: 8px; display: grid; gap: 8px; }
+.confirm-card .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.empty { color: var(--muted); font-size: 0.9rem; padding: 24px; text-align: center; border: 1px dashed var(--line); border-radius: 8px; }
+
+/* ---- tables ---- */
+.tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.86rem; background: var(--surface); }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: var(--surface-2); position: sticky; top: 0; }
+tr:last-child td { border-bottom: 0; }
+td.num, .tnum { font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 0.78rem; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: var(--surface-2); }
+tr.detail td { background: var(--code-bg); }
+tr.inactive td { opacity: 0.55; }
+td select, td input[type="text"] { padding: 3px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); font-size: 0.82rem; }
+.scroll-y { max-height: 460px; overflow-y: auto; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.filters select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); font-size: 0.86rem; }
+
+.policy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+@media (max-width: 900px) { .policy-grid { grid-template-columns: 1fr; } }
+.span2 { grid-column: 1 / -1; }
+.addrule { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; align-items: end; }
+.addrule label { display: grid; gap: 3px; font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+.addrule select, .addrule input { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 0.86rem; color: var(--fg); }
+.versionbar { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; }
+.toast { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 0.88rem; font-weight: 600; z-index: 20; }
+
+/* ---- flow ---- */
+.flow-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+@media (max-width: 1000px) { .flow-grid { grid-template-columns: 1fr; } }
+.svg-wrap { overflow-x: auto; }
+svg.flow { width: 100%; min-width: 820px; height: auto; display: block; }
+svg.flow .node { cursor: pointer; }
+svg.flow .node rect.box { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+svg.flow .node.built rect.box { stroke: var(--accent); }
+svg.flow .node.written rect.box { stroke: var(--accent); stroke-dasharray: 6 3; }
+svg.flow .node.todo rect.box { stroke: var(--muted); stroke-dasharray: 4 4; }
+svg.flow .node.later rect.box { stroke: var(--later); stroke-dasharray: 2 4; fill: var(--later-soft); }
+svg.flow .node:hover rect.box, svg.flow .node:focus rect.box { stroke-width: 2.5; }
+svg.flow .node.sel rect.box { stroke-width: 3; fill: var(--accent-soft); }
+svg.flow .node.lit rect.box { stroke-width: 3; fill: var(--accent-soft); stroke: var(--accent); }
+svg.flow .node text { fill: var(--fg); font-family: var(--font-ui); }
+svg.flow .node text.t { font-size: 13.5px; font-weight: 700; }
+svg.flow .node text.s { font-size: 11px; fill: var(--muted); }
+svg.flow .group rect { fill: var(--surface-2); stroke: var(--line); }
+svg.flow .group text { fill: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; }
+svg.flow .edge path.line { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+svg.flow .edge.dash path.line { stroke-dasharray: 5 4; }
+svg.flow .edge path.hit { fill: none; stroke: transparent; stroke-width: 14; cursor: pointer; }
+svg.flow .edge.lit path.line, svg.flow .edge.sel path.line { stroke: var(--accent); stroke-width: 2.5; }
+svg.flow .edge text { font-size: 10.5px; fill: var(--muted); font-family: var(--font-mono); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+svg.flow .edge.lit text, svg.flow .edge.sel text { fill: var(--accent); }
+svg.flow marker path { fill: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 0.8rem; color: var(--muted); margin-top: 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 22px; height: 12px; border-radius: 3px; border: 2px solid var(--accent); display: inline-block; }
+.legend i.w { border-style: dashed; }
+.legend i.t { border: 2px dashed var(--muted); }
+.legend i.l { border: 2px dotted var(--later); background: var(--later-soft); }
+.detail h3 { font-size: 1.1rem; margin-bottom: 4px; }
+.detail .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: 0.86rem; margin-top: 10px; }
+.detail .kv dt { color: var(--muted); }
+.detail .kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.detail ul { padding-left: 18px; margin: 8px 0 0; font-size: 0.9rem; }
+.detail p { margin-top: 8px; font-size: 0.92rem; }
+.walk { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+.walk .txt { flex: 1 1 260px; font-size: 0.92rem; }
+
+/* ---- review ---- */
+.findings { display: grid; gap: 10px; }
+.finding { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); display: grid; gap: 6px; }
+.finding .row1 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.finding p { font-size: 0.92rem; max-width: 80ch; }
+.finding .fix { color: var(--muted); }
+.finding .try { font-size: 0.85rem; }
+.linkish { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+@media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+footer { color: var(--muted); font-size: 0.82rem; padding-block: 20px 40px; border-top: 1px solid var(--line); }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 20 20"><path d="M10 1.5 3 4.5v5c0 4.2 3 7.6 7 9 4-1.4 7-4.8 7-9v-5z" fill="none" stroke="var(--bg)" stroke-width="1.8"/><path d="m6.8 10 2.2 2.2 4.3-4.6" fill="none" stroke="var(--bg)" stroke-width="1.8"/></svg>
+      </div>
+      <div>
+        <h1>MCP Access Console</h1>
+        <small>Who may use which MCP tool, from which front door. Logged every time.</small>
+      </div>
+    </div>
+    <div class="banner">
+      <span class="tag wip">Work in progress</span>
+      <span class="tag sim">Simulated · no model or instance calls</span>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs" aria-label="Sections">
+  <div class="wrap" role="tablist">
+    <button role="tab" data-tab="simulate" aria-selected="true">Run a prompt</button>
+    <button role="tab" data-tab="flow" aria-selected="false">Data flow</button>
+    <button role="tab" data-tab="policy" aria-selected="false">Policy</button>
+    <button role="tab" data-tab="log" aria-selected="false">Decision log<span class="count" id="logCount">0</span></button>
+    <button role="tab" data-tab="review" aria-selected="false">Plan review</button>
+  </div>
+</nav>
+
+<main class="wrap">
+
+<!-- ================= SIMULATOR ================= -->
+<section class="tab" id="tab-simulate">
+  <p class="lede">Pick a person and a front door, then send a prompt. Each step shows what the orchestrator sends to the ServiceNow policy API and what comes back. The access decision uses a copy of the real decision logic. The model and the tool results are scripted.</p>
+  <div class="sim-grid">
+    <div class="controls">
+      <div class="panel">
+        <div class="label" style="margin-bottom:8px">1 · Who is asking</div>
+        <div class="personas" id="personas"></div>
+      </div>
+      <div class="panel">
+        <div class="label" style="margin-bottom:8px">2 · Through which front door</div>
+        <div class="seg" id="epSeg" role="group" aria-label="Entry point"></div>
+        <p class="lede" id="epNote" style="font-size:0.82rem;margin-top:8px"></p>
+      </div>
+      <div class="panel">
+        <div class="label" style="margin-bottom:8px">3 · Send a prompt</div>
+        <div class="prompts" id="prompts"></div>
+        <form class="free" id="freeForm" style="margin-top:10px">
+          <input id="freeText" type="text" placeholder="Or type your own…" aria-label="Your own prompt" autocomplete="off">
+          <button class="btn" type="submit">Send</button>
+        </form>
+        <p class="lede" style="font-size:0.78rem;margin-top:6px">Typed prompts go to a keyword router that stands in for the model.</p>
+      </div>
+      <div class="panel opts">
+        <div class="label">Demo switches</div>
+        <label><input type="checkbox" id="optFail"> <span>Make the tool call fail (shows an <code>error</code> outcome)</span></label>
+        <label><input type="checkbox" id="optBypass"> <span>Client ignores the tool list (shows the check before each call)</span></label>
+      </div>
+    </div>
+    <div class="panel run" id="run" aria-live="polite"></div>
+  </div>
+</section>
+
+<!-- ================= FLOW ================= -->
+<section class="tab" id="tab-flow" hidden>
+  <p class="lede">Click any box or arrow to see what it is, where it lives in the code, and whether it is built yet. Use the walkthrough to follow one request end to end.</p>
+  <div class="flow-grid">
+    <div class="panel">
+      <div class="svg-wrap"><svg class="flow" id="flowSvg" viewBox="0 0 1160 490" role="img" aria-label="Data flow diagram"></svg></div>
+      <div class="legend">
+        <span><i></i>Built</span><span><i class="w"></i>Written, not wired up</span><span><i class="t"></i>Not built yet</span><span><i class="l"></i>Later version</span>
+      </div>
+      <div class="walk">
+        <button class="btn" id="walkPrev">Back</button>
+        <button class="btn primary" id="walkNext">Walk through a request</button>
+        <div class="txt" id="walkTxt"></div>
+      </div>
+    </div>
+    <div class="panel detail" id="flowDetail"></div>
+  </div>
+</section>
+
+<!-- ================= POLICY ================= -->
+<section class="tab" id="tab-policy" hidden>
+  <div class="panel versionbar">
+    <div><span class="label">policy_version</span><br><span class="tnum" id="polVersion"></span></div>
+    <p class="lede" style="flex:1 1 300px;font-size:0.88rem">Changes here are what an admin would do in the console. They take effect on the next prompt. Every change moves <code>policy_version</code>, which tells the orchestrator to drop its cache.</p>
+    <button class="btn danger" id="resetBtn">Reset to starter data</button>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Access checker</h2><span class="pill later">Phase 2 in the plan</span></div>
+    <p class="lede" style="font-size:0.9rem">Pick a user and an entry point. See every tool they get and the rule behind each one. It runs the same function as <code>GET /policy</code>.</p>
+    <div class="filters" style="margin-top:10px">
+      <select id="chkUser" aria-label="User"></select>
+      <select id="chkEp" aria-label="Entry point"></select>
+      <label style="font-size:0.86rem;display:flex;gap:6px;align-items:center"><input type="checkbox" id="chkDenied"> Show denied tools too</label>
+    </div>
+    <div id="chkOut" style="margin-top:12px"></div>
+  </div>
+  <div class="policy-grid">
+    <div class="panel">
+      <div class="panel-head"><h2>Entry points</h2><span class="label">x_664529_now_mcp_entry_point</span></div>
+      <div class="tbl-wrap"><table id="epTable"></table></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Tool sets</h2><span class="label">tool_set + tool_set_item</span></div>
+      <div class="tbl-wrap scroll-y" style="max-height:260px"><table id="setTable"></table></div>
+    </div>
+    <div class="panel span2">
+      <div class="panel-head"><h2>Access rules</h2><span class="label">x_664529_now_mcp_access_rule · deny wins · no match = deny</span></div>
+      <div class="tbl-wrap"><table id="ruleTable"></table></div>
+      <form class="addrule" id="ruleForm">
+        <label>Tool set<select id="rfSet"></select></label>
+        <label>Grantee type<select id="rfType"><option value="everyone">Everyone</option><option value="group" selected>Group</option><option value="role">Role</option><option value="user">User</option></select></label>
+        <label>Grantee<select id="rfWho"></select></label>
+        <label>Entry point<select id="rfEp"></select></label>
+        <label>Effect<select id="rfEffect"><option value="allow">Allow</option><option value="deny">Deny</option></select></label>
+        <label>Valid to (optional)<input id="rfTo" type="date"></label>
+        <label>Justification<input id="rfWhy" type="text" placeholder="Why this rule exists"></label>
+        <button class="btn primary" type="submit">Add rule</button>
+      </form>
+    </div>
+    <div class="panel span2">
+      <div class="panel-head"><h2>Tool catalog</h2><span class="label">x_664529_now_mcp_tool · the capability contract</span></div>
+      <div class="filters" style="margin-bottom:10px">
+        <div class="seg" id="catFilter" role="group" aria-label="Catalog filter">
+          <button data-f="all" aria-pressed="true">All</button>
+          <button data-f="draft" aria-pressed="false">Awaiting review</button>
+          <button data-f="act" aria-pressed="false">Act tools</button>
+          <button data-f="blocked" aria-pressed="false">Blocked</button>
+        </div>
+        <select id="catCat" aria-label="Category"></select>
+        <span class="lede" id="catCount" style="font-size:0.84rem"></span>
+      </div>
+      <div class="tbl-wrap scroll-y"><table id="toolTable"></table></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= LOG ================= -->
+<section class="tab" id="tab-log" hidden>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Decision log</h2>
+      <div class="filters">
+        <div class="seg" id="logFilter" role="group" aria-label="Log filter">
+          <button data-f="all" aria-pressed="true">All</button>
+          <button data-f="deny" aria-pressed="false">Denied, last 7 days</button>
+          <button data-f="error" aria-pressed="false">Errors, last 7 days</button>
+        </div>
+        <button class="btn" id="clearLog">Clear demo rows</button>
+      </div>
+    </div>
+    <p class="lede" style="font-size:0.88rem;margin-bottom:12px">One row per <code>POST /decision</code>. <code>POST /outcome</code> updates the same row by <code>request_id</code>. Rows marked <span class="pill ghost">sample</span> are seeded examples. Click a row to see its history.</p>
+    <div class="tbl-wrap"><table id="logTable"></table></div>
+  </div>
+</section>
+
+<!-- ================= REVIEW ================= -->
+<section class="tab" id="tab-review" hidden>
+  <p class="lede">A review of <em>MCP Access Console — ServiceNow-side Plan</em> against the code in <code>bar-sn-mcp</code> as of 2 October 2026.</p>
+  <div class="two">
+    <div class="panel">
+      <div class="panel-head"><h2>Build status</h2><span class="lede" style="font-size:0.84rem">Plan build steps</span></div>
+      <div class="tbl-wrap"><table id="buildTable"></table></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Plan tests</h2><button class="btn" id="runTests">Run again</button></div>
+      <p class="lede" style="font-size:0.86rem;margin-bottom:10px">Run against the demo engine, which mirrors <code>src/server/policy/policy-service.ts</code>. A pass shows the test design and the logic agree. It does not test the deployed app.</p>
+      <div class="tbl-wrap"><table id="testTable"></table></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Findings</h2><span class="lede" style="font-size:0.84rem">Most important first</span></div>
+    <div class="findings" id="findings"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Open decisions</h2></div>
+    <div class="tbl-wrap"><table id="openTable"></table></div>
+  </div>
+</section>
+</main>
+
+<footer><div class="wrap">Demo engine mirrors <code>src/server/policy/policy-service.ts</code>. People, records, prompts and tool results are made up. Nothing here calls a model, the sn-mcp server or a ServiceNow instance.</div></footer>
+
+<script>
+(function () {
+'use strict';
+var SCOPE = 'x_664529_now_mcp';
+var API = '/api/' + SCOPE + '/policy/v1';
+
+/* ------------------------------------------------------------------ helpers */
+function $(s, r) { return (r || document).querySelector(s); }
+function $all(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function jsonHtml(o) {
+  var s = esc(JSON.stringify(o, null, 2));
+  return s.replace(/(&quot;(?:[^&]|&(?!quot;))*?&quot;)(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?)/g, function (m, str, colon, bool, num) {
+    if (str) return colon ? '<span class="j-k">' + str + '</span>' + colon : '<span class="j-s">' + str + '</span>';
+    if (bool) return '<span class="j-b">' + bool + '</span>';
+    return '<span class="j-n">' + num + '</span>';
+  });
+}
+function pad(n) { return (n < 10 ? '0' : '') + n; }
+function snTime(d) { return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()) + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds()); }
+function clone(o) { return JSON.parse(JSON.stringify(o)); }
+var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, reduced ? 0 : ms); }); }
+function decisionPill(d) {
+  var cls = d === 'allow' ? 'allow' : d === 'deny' ? 'deny' : 'confirm';
+  return '<span class="pill ' + cls + '">' + esc(d) + '</span>';
+}
+function outcomePill(o) {
+  if (!o) return '<span class="pill muted">none</span>';
+  var cls = { pending: 'muted', success: 'allow', error: 'deny', cancelled: 'muted', confirmed: 'confirm', declined: 'deny' }[o] || 'muted';
+  return '<span class="pill ' + cls + '">' + esc(o) + '</span>';
+}
+var toastTimer;
+function toast(msg) {
+  var t = $('#toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 2200);
+}
+
+/* ------------------------------------------------------------------ catalog: the 80 sn-mcp tools */
+var CATS = {
+  docs: ['Documentation search', 'Docs'], reports: ['Reports', 'Reports'], incident: ['Incidents', 'Incident'],
+  user: ['Users & groups', 'Users & groups'], catalog: ['Service catalog', 'Catalog'], change: ['Change requests', 'Change'],
+  changeset: ['Changesets (update sets)', 'Changeset'], knowledge: ['Knowledge base', 'Knowledge'], story: ['Agile stories', 'Story'],
+  scrum: ['Scrum tasks', 'Scrum'], project: ['Projects', 'Project'], 'script-include': ['Script includes', 'Script includes'],
+  workflow: ['Classic workflow', 'Workflow']
+};
+var TABLES = {
+  docs: 'local docs index', reports: 'syslog, sys_update_xml', incident: 'incident, sys_user', user: 'sys_user, sys_user_group, sys_user_grmember',
+  catalog: 'sc_cat_item, sc_category, item_option_new', change: 'change_request, change_task, sysapproval_approver',
+  changeset: 'sys_update_set, sys_update_xml', knowledge: 'kb_knowledge, kb_knowledge_base, kb_category', story: 'rm_story, rm_story_dependency',
+  scrum: 'rm_scrum_task', project: 'pm_project', 'script-include': 'sys_script_include', workflow: 'wf_workflow, wf_activity'
+};
+// name:category:w(rite)
+var TOOL_SPEC = ('docs_search:docs docs_get:docs docs_reindex:docs:w get_syslog_report:reports get_developer_work_report:reports ' +
+  'list_incidents:incident get_incident_by_number:incident create_incident:incident:w update_incident:incident:w add_comment:incident:w resolve_incident:incident:w ' +
+  'list_users:user get_user:user list_groups:user create_user:user:w update_user:user:w create_group:user:w update_group:user:w add_group_members:user:w remove_group_members:user:w ' +
+  'list_catalog_items:catalog get_catalog_item:catalog list_catalog_categories:catalog list_catalog_item_variables:catalog get_optimization_recommendations:catalog update_catalog_item:catalog:w create_catalog_category:catalog:w update_catalog_category:catalog:w move_catalog_items:catalog:w create_catalog_item_variable:catalog:w update_catalog_item_variable:catalog:w ' +
+  'list_change_requests:change get_change_request_details:change create_change_request:change:w update_change_request:change:w add_change_task:change:w submit_change_for_approval:change:w approve_change:change:w reject_change:change:w ' +
+  'list_changesets:changeset get_changeset_details:changeset create_changeset:changeset:w update_changeset:changeset:w commit_changeset:changeset:w publish_changeset:changeset:w add_file_to_changeset:changeset:w ' +
+  'list_knowledge_bases:knowledge list_categories:knowledge list_articles:knowledge get_article:knowledge create_knowledge_base:knowledge:w create_category:knowledge:w create_article:knowledge:w update_article:knowledge:w publish_article:knowledge:w ' +
+  'list_stories:story list_story_dependencies:story create_story:story:w update_story:story:w create_story_dependency:story:w delete_story_dependency:story:w ' +
+  'list_scrum_tasks:scrum create_scrum_task:scrum:w update_scrum_task:scrum:w list_projects:project create_project:project:w update_project:project:w ' +
+  'list_script_includes:script-include get_script_include:script-include create_script_include:script-include:w update_script_include:script-include:w delete_script_include:script-include:w ' +
+  'list_workflows:workflow get_workflow_details:workflow list_workflow_versions:workflow get_workflow_activities:workflow create_workflow:workflow:w update_workflow:workflow:w add_workflow_activity:workflow:w update_workflow_activity:workflow:w delete_workflow_activity:workflow:w').split(' ');
+var HIGH = { approve_change: 1, reject_change: 1, delete_script_include: 1, commit_changeset: 1, publish_changeset: 1, create_user: 1, remove_group_members: 1, delete_workflow_activity: 1 };
+function labelOf(n) { return n.replace(/_/g, ' ').replace(/^./, function (c) { return c.toUpperCase(); }); }
+
+/* ------------------------------------------------------------------ starter data */
+function seed() {
+  var st = { seq: 0, ruleSeq: 0, reqSeq: 1000, log: [] };
+  st.users = [
+    { id: 'u_priya', name: 'Priya Shah', email: 'priya.shah@example.com', user_name: 'priya.shah', active: true },
+    { id: 'u_marcus', name: 'Marcus Lee', email: 'marcus.lee@example.com', user_name: 'marcus.lee', active: true },
+    { id: 'u_alex', name: 'Alex Kim', email: 'alex.kim@example.com', user_name: 'alex.kim', active: true },
+    { id: 'u_jordan', name: 'Jordan Reyes', email: 'jordan.reyes@example.com', user_name: 'jordan.reyes', active: true }
+  ];
+  st.groups = [
+    { id: 'g_sd', name: 'Service Desk', active: true },
+    { id: 'g_cab', name: 'Change Advisory Board', active: true },
+    { id: 'g_dev', name: 'Platform Developers', active: true }
+  ];
+  st.members = [['u_priya', 'g_sd'], ['u_marcus', 'g_cab'], ['u_alex', 'g_dev'], ['u_jordan', 'g_cab']];
+  st.roles = [{ id: 'r_itil', name: 'itil' }, { id: 'r_admin', name: SCOPE + '.admin' }];
+  st.userRoles = [['u_priya', 'r_itil'], ['u_marcus', 'r_itil'], ['u_jordan', 'r_itil'], ['u_jordan', 'r_admin']];
+  st.entryPoints = [
+    { id: 'ep_claude', name: 'Claude', key: 'claude', active: true, description: 'Claude desktop and Claude Code.' },
+    { id: 'ep_copilot', name: 'GitHub Copilot', key: 'copilot', active: true, description: 'Copilot agent mode in VS Code.' }
+  ];
+  st.tools = TOOL_SPEC.map(function (s) {
+    var p = s.split(':'), name = p[0], cat = p[1], w = p[2] === 'w';
+    return {
+      id: 't_' + name, name: name, label: labelOf(name), category: cat, source: cat === 'docs' ? 'docs' : 'servicenow',
+      pathway: w ? 'act' : 'ask', action_class: name === 'docs_reindex' ? 'blocked' : (w ? 'execute' : 'read'),
+      requires_confirmation: w, risk: HIGH[name] ? 'high' : (w ? 'medium' : 'low'),
+      reads: TABLES[cat], writes: w ? TABLES[cat].split(',')[0] : '',
+      status: cat === 'workflow' ? 'draft' : 'active'
+    };
+  });
+  st.sets = []; st.items = [];
+  function addSet(name, desc, tools) {
+    var s = { id: 'ts_' + st.sets.length, name: name, description: desc, active: true };
+    st.sets.push(s);
+    tools.forEach(function (t) { st.items.push([s.id, t.id]); });
+  }
+  addSet('Docs', 'Search and read the ServiceNow product docs.', st.tools.filter(function (t) { return t.name === 'docs_search' || t.name === 'docs_get'; }));
+  Object.keys(CATS).forEach(function (c) {
+    if (c === 'docs') return;
+    var r = st.tools.filter(function (t) { return t.category === c && t.pathway !== 'act'; });
+    var a = st.tools.filter(function (t) { return t.category === c && t.pathway === 'act'; });
+    if (r.length) addSet(CATS[c][1] + ' — read', 'Read-only ' + CATS[c][0].toLowerCase() + ' tools.', r);
+    if (a.length) addSet(CATS[c][1] + ' — act', CATS[c][0] + ' tools that change records.', a);
+  });
+  function setId(n) { return st.sets.filter(function (s) { return s.name === n; })[0].id; }
+  function rule(set, type, who, effect, ep, why, validTo) {
+    st.ruleSeq++;
+    st.rules = st.rules || [];
+    st.rules.push({ id: 'ACR' + String(st.ruleSeq).padStart(4, '0'), tool_set: setId(set), grantee_type: type, grantee: who || '', entry_point: ep || '', effect: effect, valid_from: '', valid_to: validTo || '', justification: why, active: true });
+  }
+  st.rules = [];
+  rule('Docs', 'everyone', '', 'allow', '', 'Docs stay open to everyone, as they are today.');
+  rule('Incident — read', 'group', 'g_sd', 'allow', '', 'Service desk works incidents.');
+  rule('Incident — act', 'group', 'g_sd', 'allow', '', 'Service desk updates and resolves incidents.');
+  rule('Knowledge — read', 'role', 'r_itil', 'allow', '', 'Anyone with itil can read knowledge.');
+  rule('Change — read', 'group', 'g_cab', 'allow', '', 'CAB reviews change requests.');
+  rule('Change — act', 'group', 'g_cab', 'allow', '', 'CAB approves and rejects changes.');
+  rule('Change — act', 'user', 'u_marcus', 'deny', 'ep_copilot', 'Approvals only from Claude until the Copilot confirmation step is tested.');
+  rule('Incident — read', 'group', 'g_cab', 'allow', '', 'Time-boxed for the post-incident review project.', '2026-12-31');
+  rule('Script includes — read', 'group', 'g_dev', 'allow', 'ep_copilot', 'Developers work in VS Code.');
+  rule('Script includes — act', 'group', 'g_dev', 'allow', 'ep_copilot', 'Developers edit script includes from VS Code, with confirmation.');
+  rule('Reports — read', 'group', 'g_dev', 'allow', 'ep_copilot', 'Developer work report for stand-ups.');
+  st.version = snTime(new Date(Date.now() - 3600e3 * 26));
+  // sample history so the log is not empty on first open
+  var day = 864e5, now = Date.now();
+  var samples = [
+    [now - 3.2 * day, 'priya.shah@example.com', 'claude', 'list_incidents', 'allow', 'matched allow rule', 'ACR0002', 'success', 412],
+    [now - 2.9 * day, 'priya.shah@example.com', 'claude', 'update_incident', 'confirm_required', 'matched allow rule; tool needs confirmation', 'ACR0003', 'success', 688],
+    [now - 2.1 * day, 'marcus.lee@example.com', 'copilot', 'approve_change', 'deny', 'matched deny rule', 'ACR0007', null, null],
+    [now - 1.6 * day, 'alex.kim@example.com', 'copilot', 'get_script_include', 'allow', 'matched allow rule', 'ACR0009', 'error', 3021],
+    [now - 0.8 * day, 'old.contractor@example.com', 'claude', 'docs_search', 'deny', 'unknown or inactive user', null, null, null],
+    [now - 0.3 * day, 'marcus.lee@example.com', 'claude', 'approve_change', 'confirm_required', 'matched allow rule; tool needs confirmation', 'ACR0006', 'declined', null]
+  ];
+  samples.forEach(function (s, i) {
+    var u = st.users.filter(function (x) { return x.email === s[1]; })[0];
+    var hist = [{ at: snTime(new Date(s[0])), what: 'decision ' + s[4] + (s[4] !== 'deny' ? ', outcome pending' : '') }];
+    if (s[7]) hist.push({ at: snTime(new Date(s[0] + 4000)), what: 'outcome ' + s[7] });
+    st.log.push({ id: 'L' + i, created: s[0], user: u ? u.id : '', user_identifier: s[1], entry_point_key: s[2], tool_name: s[3], decision: s[4], reason: s[5], rule: s[6] || '', request_id: 'req-s' + (i + 1), outcome: s[7] || (s[4] === 'deny' ? '' : 'pending'), duration_ms: s[8], history: hist, sample: true });
+  });
+  return st;
+}
+
+/* ------------------------------------------------------------------ engine: mirrors policy-service.ts */
+function resolveUser(st, identifier) {
+  var id = (identifier || '').trim();
+  if (!id) return { sysId: null, reason: 'no user identifier' };
+  var byEmail = st.users.filter(function (u) { return u.active && u.email === id; });
+  if (byEmail.length > 1) return { sysId: null, reason: 'ambiguous user (email matches more than one active user)' };
+  if (byEmail.length === 1) return { sysId: byEmail[0].id, reason: 'matched by email' };
+  var byName = st.users.filter(function (u) { return u.active && u.user_name === id; });
+  if (byName.length) return { sysId: byName[0].id, reason: 'matched by user_name' };
+  return { sysId: null, reason: 'unknown or inactive user' };
+}
+function getEntryPoint(st, key) { return st.entryPoints.filter(function (e) { return e.key === key; })[0] || null; }
+function getTool(st, name) { return st.tools.filter(function (t) { return t.name === name; })[0] || null; }
+function inDate(rule, now) {
+  if (rule.valid_from && new Date(rule.valid_from) > now) return false;
+  if (rule.valid_to && new Date(rule.valid_to + 'T23:59:59Z') < now) return false;
+  return true;
+}
+function collectRuleHits(st, userId, ep) {
+  var groups = {}, roles = {}, now = new Date();
+  st.members.forEach(function (m) { var g = st.groups.filter(function (x) { return x.id === m[1]; })[0]; if (m[0] === userId && g && g.active) groups[m[1]] = true; });
+  st.userRoles.forEach(function (r) { if (r[0] === userId) roles[r[1]] = true; });
+  var setHits = {};
+  st.rules.forEach(function (rule) {
+    var set = st.sets.filter(function (s) { return s.id === rule.tool_set; })[0];
+    if (!rule.active || !set || !set.active) return;
+    if (rule.entry_point && rule.entry_point !== ep.id) return;
+    if (!inDate(rule, now)) return;
+    var t = rule.grantee_type;
+    var applies = t === 'everyone' || (t === 'user' && rule.grantee === userId) || (t === 'group' && !!groups[rule.grantee]) || (t === 'role' && !!roles[rule.grantee]);
+    if (!applies) return;
+    var hit = setHits[rule.tool_set] || (setHits[rule.tool_set] = { allowRule: null, denyRule: null });
+    if (rule.effect === 'deny') { if (!hit.denyRule) hit.denyRule = rule.id; }
+    else if (!hit.allowRule) hit.allowRule = rule.id;
+  });
+  var toolHits = {};
+  st.items.forEach(function (it) {
+    var sh = setHits[it[0]]; if (!sh) return;
+    var hit = toolHits[it[1]] || (toolHits[it[1]] = { allowRule: null, denyRule: null });
+    if (sh.denyRule && !hit.denyRule) hit.denyRule = sh.denyRule;
+    if (sh.allowRule && !hit.allowRule) hit.allowRule = sh.allowRule;
+  });
+  return toolHits;
+}
+function decideTool(tool, hit) {
+  if (tool.action_class === 'blocked') return { decision: 'deny', reason: 'tool blocked', rule: null };
+  if (tool.status !== 'active') return { decision: 'deny', reason: 'tool ' + (tool.status || 'not active'), rule: null };
+  if (hit && hit.denyRule) return { decision: 'deny', reason: 'matched deny rule', rule: hit.denyRule };
+  if (hit && hit.allowRule) return tool.requires_confirmation
+    ? { decision: 'confirm_required', reason: 'matched allow rule; tool needs confirmation', rule: hit.allowRule }
+    : { decision: 'allow', reason: 'matched allow rule', rule: hit.allowRule };
+  return { decision: 'deny', reason: 'no matching rule', rule: null };
+}
+function sortedTools(st) { return st.tools.slice().sort(function (a, b) { return a.name < b.name ? -1 : 1; }); }
+function getEffectiveTools(st, identifier, key, ttl) {
+  var res = { user: identifier, entry_point: key, policy_version: st.version, ttl_seconds: ttl || 60, tools: [] };
+  var ep = getEntryPoint(st, key);
+  if (!ep || !ep.active) { res.denied_reason = ep ? 'entry point inactive' : 'unknown entry point'; return res; }
+  var u = resolveUser(st, identifier);
+  if (!u.sysId) { res.denied_reason = u.reason; return res; }
+  var hits = collectRuleHits(st, u.sysId, ep);
+  sortedTools(st).forEach(function (t) {
+    var d = decideTool(t, hits[t.id]);
+    if (d.decision !== 'deny') res.tools.push({ name: t.name, confirm: d.decision === 'confirm_required' });
+  });
+  return res;
+}
+/** Access checker: every tool with its decision and rule. */
+function explain(st, identifier, key) {
+  var ep = getEntryPoint(st, key), u = resolveUser(st, identifier);
+  if (!ep || !ep.active) return { denied: ep ? 'entry point inactive' : 'unknown entry point', rows: [] };
+  if (!u.sysId) return { denied: u.reason, rows: [] };
+  var hits = collectRuleHits(st, u.sysId, ep);
+  return { denied: null, rows: sortedTools(st).map(function (t) { var d = decideTool(t, hits[t.id]); return { tool: t, d: d }; }) };
+}
+function decide(st, identifier, key, toolName, requestId) {
+  var tool = getTool(st, toolName), ep = getEntryPoint(st, key), u = resolveUser(st, identifier), r;
+  if (!tool) r = { decision: 'deny', reason: 'unknown tool', rule: null };
+  else if (tool.action_class === 'blocked' || tool.status !== 'active') r = decideTool(tool, undefined);
+  else if (!ep) r = { decision: 'deny', reason: 'unknown entry point', rule: null };
+  else if (!ep.active) r = { decision: 'deny', reason: 'entry point inactive', rule: null };
+  else if (!u.sysId) r = { decision: 'deny', reason: u.reason, rule: null };
+  else r = decideTool(tool, collectRuleHits(st, u.sysId, ep)[tool.id]);
+  var now = Date.now();
+  st.log.push({
+    id: 'L' + (++st.seq) + '_' + now, created: now, user: u.sysId || '', user_identifier: identifier || '', entry_point_key: key || '',
+    tool_name: toolName || '', decision: r.decision, reason: r.reason, rule: r.rule || '', request_id: requestId || '',
+    outcome: r.decision !== 'deny' ? 'pending' : '', duration_ms: null,
+    history: [{ at: snTime(new Date(now)), what: 'decision ' + r.decision + (r.decision !== 'deny' ? ', outcome pending' : '') }]
+  });
+  return r;
+}
+var OUTCOMES = ['success', 'error', 'cancelled', 'confirmed', 'declined'];
+function recordOutcome(st, requestId, outcome, ms) {
+  if (OUTCOMES.indexOf(outcome) === -1) return 'bad_outcome';
+  var rows = st.log.filter(function (l) { return l.request_id === requestId; }).sort(function (a, b) { return b.created - a.created; });
+  if (!rows.length) return false;
+  var row = rows[0];
+  var prev = row.outcome;
+  row.outcome = outcome;
+  if (ms != null && !isNaN(ms)) row.duration_ms = Math.round(ms);
+  row.history.push({ at: snTime(new Date()), what: 'outcome ' + (prev ? prev + ' → ' : '') + outcome });
+  return true;
+}
+function syncCatalog(st, tools) {
+  var res = { created: [], updated: [], unchanged: [], invalid: [], not_in_request: [] }, seen = {};
+  tools.forEach(function (t) {
+    var name = t && typeof t.name === 'string' ? t.name.trim() : '';
+    if (!/^[a-z0-9_]{1,100}$/.test(name) || seen[name]) { res.invalid.push(name || String(t && t.name)); return; }
+    seen[name] = true;
+    var category = t.category || '', source = t.source || (category === 'docs' ? 'docs' : 'servicenow');
+    var ex = getTool(st, name);
+    if (ex) {
+      if (ex.category !== category || ex.source !== source) { ex.category = category; ex.source = source; res.updated.push(name); }
+      else res.unchanged.push(name);
+      return;
+    }
+    var w = t.write === true;
+    st.tools.push({ id: 't_' + name, name: name, label: labelOf(name), category: category, source: source, status: 'draft', pathway: w ? 'act' : 'ask', action_class: w ? 'execute' : 'read', requires_confirmation: w, risk: w ? 'medium' : 'low', reads: '', writes: '' });
+    res.created.push(name);
+  });
+  st.tools.forEach(function (t) { if (!seen[t.name]) res.not_in_request.push(t.name); });
+  return res;
+}
+
+/* ------------------------------------------------------------------ app state */
+var S = seed();
+function bump() { S.version = snTime(new Date()); renderVersion(); }
+function userName(id) { var u = S.users.filter(function (x) { return x.id === id; })[0]; return u ? u.name : ''; }
+function setName(id) { var s = S.sets.filter(function (x) { return x.id === id; })[0]; return s ? s.name : '?'; }
+function epName(id) { var e = S.entryPoints.filter(function (x) { return x.id === id; })[0]; return e ? e.name : 'Any'; }
+function granteeText(r) {
+  if (r.grantee_type === 'everyone') return 'Everyone';
+  if (r.grantee_type === 'group') { var g = S.groups.filter(function (x) { return x.id === r.grantee; })[0]; return 'Group: ' + (g ? g.name : '?'); }
+  if (r.grantee_type === 'role') { var ro = S.roles.filter(function (x) { return x.id === r.grantee; })[0]; return 'Role: ' + (ro ? ro.name : '?'); }
+  return 'User: ' + userName(r.grantee);
+}
+function ruleById(id) { return S.rules.filter(function (r) { return r.id === id; })[0]; }
+function ruleSummary(id) {
+  var r = ruleById(id); if (!r) return id || '';
+  return id + ' · ' + setName(r.tool_set) + ' → ' + granteeText(r) + (r.entry_point ? ' · ' + epName(r.entry_point) + ' only' : '');
+}
+
+/* ------------------------------------------------------------------ personas and prompts */
+var PERSONAS = [
+  { id: 'priya', name: 'Priya Shah', initials: 'PS', role: 'Service desk agent', ident: 'priya.shah@example.com', groups: 'Service Desk · itil', ep: 'claude',
+    prompts: [
+      { text: 'Show me open P1 incidents for the Service Desk', tool: 'list_incidents', args: { query: 'active=true^priority=1^assignment_group.name=Service Desk', limit: 10 },
+        result: [{ number: 'INC0010023', short_description: 'VPN client fails after update', priority: '1 - Critical', state: 'In Progress', assigned_to: 'Priya Shah' }, { number: 'INC0010031', short_description: 'Email delayed for London office', priority: '1 - Critical', state: 'New', assigned_to: '' }],
+        answer: 'There are 2 open P1 incidents for the Service Desk. INC0010023 (VPN client fails after update) is with you and in progress. INC0010031 (email delayed for the London office) is new and not assigned yet.' },
+      { text: 'Resolve INC0010023. The VPN client reinstall fixed it.', tool: 'resolve_incident', args: { number: 'INC0010023', close_code: 'Solved (Permanently)', close_notes: 'Reinstalled VPN client 5.2.1. User confirmed connection.' },
+        result: { number: 'INC0010023', state: 'Resolved', close_code: 'Solved (Permanently)' },
+        answer: 'Done. INC0010023 is now Resolved with close code "Solved (Permanently)" and your notes on the reinstall.' },
+      { text: 'How do I set up assignment rules for incidents?', tool: 'docs_search', args: { query: 'incident assignment rules', limit: 5 },
+        result: [{ title: 'Create an assignment rule', path: 'platform-administration/assignment-rules/create-assignment-rule.md' }, { title: 'Assignment rules and data lookup', path: 'platform-administration/assignment-rules/overview.md' }],
+        answer: 'Go to System Policy > Rules > Assignment, then create a rule on the Incident table with your conditions and the group to assign. The docs page "Create an assignment rule" has the steps.' },
+      { text: 'Approve CHG0030012 for tonight\'s release', tool: 'approve_change', args: { number: 'CHG0030012', comments: 'Approved for tonight' },
+        result: { number: 'CHG0030012', approval: 'approved' }, answer: 'CHG0030012 is approved.' }
+    ] },
+  { id: 'marcus', name: 'Marcus Lee', initials: 'ML', role: 'Change manager', ident: 'marcus.lee@example.com', groups: 'Change Advisory Board · itil', ep: 'claude',
+    prompts: [
+      { text: 'List changes waiting for CAB approval', tool: 'list_change_requests', args: { query: 'approval=requested^state=-4', limit: 20 },
+        result: [{ number: 'CHG0030012', short_description: 'Release 26.10 to production', risk: 'Moderate', planned_start: '2026-10-02 22:00' }, { number: 'CHG0030015', short_description: 'Patch database cluster', risk: 'High', planned_start: '2026-10-05 01:00' }],
+        answer: 'Two changes are waiting for CAB approval: CHG0030012 (Release 26.10 to production, moderate risk, tonight 22:00) and CHG0030015 (patch database cluster, high risk, Sunday 01:00).' },
+      { text: 'Approve CHG0030012. Risk reviewed at CAB.', tool: 'approve_change', args: { number: 'CHG0030012', comments: 'Risk reviewed at CAB 2 Oct.' },
+        result: { number: 'CHG0030012', approval: 'approved', state: 'Scheduled' },
+        answer: 'CHG0030012 is approved and now Scheduled. I added your comment "Risk reviewed at CAB 2 Oct."' },
+      { text: 'Is INC0010023 related to tonight\'s release?', tool: 'get_incident_by_number', args: { number: 'INC0010023' },
+        result: { number: 'INC0010023', short_description: 'VPN client fails after update', cmdb_ci: 'VPN Gateway', caused_by: '' },
+        answer: 'Probably not. INC0010023 is about the VPN client on the VPN Gateway. It has no "caused by" change, and Release 26.10 does not touch the VPN Gateway.' },
+      { text: 'Create a story for the release checklist', tool: 'create_story', args: { short_description: 'Release 26.10 checklist', story_points: 2 },
+        result: { number: 'STRY0010044' }, answer: 'Created STRY0010044.' }
+    ] },
+  { id: 'alex', name: 'Alex Kim', initials: 'AK', role: 'Platform developer', ident: 'alex.kim@example.com', groups: 'Platform Developers', ep: 'copilot',
+    prompts: [
+      { text: 'Show me the PolicyService script include', tool: 'get_script_include', args: { name: 'PolicyService' },
+        result: { name: 'PolicyService', api_name: SCOPE + '.PolicyService', active: true, script: '/* 410 lines */' },
+        answer: 'PolicyService is active in ' + SCOPE + '. It has resolveUser, getEffectiveTools, decide, recordOutcome and syncCatalog. Want me to open decide()?' },
+      { text: 'Add debug logging to PolicyService.decide', tool: 'update_script_include', args: { name: 'PolicyService', script: '/* + gs.debug(...) in decide() */' },
+        result: { name: 'PolicyService', updated: true, sys_mod_count: 14 },
+        answer: 'I added a gs.debug line at the start and end of decide(). The record is saved in your current update set.' },
+      { text: 'What did I change this week?', tool: 'get_developer_work_report', args: { start_date: '2026-09-28', end_date: '2026-10-02' },
+        result: [{ author: 'alex.kim', updateSet: 'MCP Access 0.1', changeCount: 23 }],
+        answer: 'This week you made 23 changes, all in the "MCP Access 0.1" update set.' },
+      { text: 'How is GlideRecordSecure different from GlideRecord?', tool: 'docs_search', args: { query: 'GlideRecordSecure', limit: 5 },
+        result: [{ title: 'GlideRecordSecure - Scoped', path: 'api-reference/server-api/GlideRecordSecure.md' }],
+        answer: 'GlideRecordSecure runs the same queries but enforces ACLs for the current user. GlideRecord skips ACLs. That is why PolicyService can write the decision log even though nobody has a write ACL on it.' }
+    ] },
+  { id: 'sam', name: 'Sam Ortiz', initials: 'SO', role: 'Contractor, no ServiceNow account', ident: 'sam.ortiz@partner.example.org', groups: 'No sys_user record', ep: 'claude',
+    prompts: [
+      { text: 'Search the docs for CSDM application services', tool: 'docs_search', args: { query: 'CSDM application service', limit: 5 },
+        result: [{ title: 'Application services in CSDM' }], answer: 'Found it.' },
+      { text: 'List my open incidents', tool: 'list_incidents', args: { query: 'active=true^caller_id.email=sam.ortiz@partner.example.org' },
+        result: [], answer: 'None.' }
+    ] }
+];
+var FREE_ROUTES = [
+  [/resolve/i, 'resolve_incident'], [/approve/i, 'approve_change'], [/reject/i, 'reject_change'], [/incident/i, 'list_incidents'],
+  [/change/i, 'list_change_requests'], [/script/i, 'get_script_include'], [/story|stories/i, 'list_stories'], [/scrum|task/i, 'list_scrum_tasks'],
+  [/article|knowledge|kb/i, 'list_articles'], [/catalog/i, 'list_catalog_items'], [/workflow/i, 'list_workflows'], [/project/i, 'list_projects'],
+  [/update set|changeset/i, 'list_changesets'], [/syslog|error log/i, 'get_syslog_report'], [/what did i change|work report/i, 'get_developer_work_report'],
+  [/user|group/i, 'list_users'], [/reindex/i, 'docs_reindex']
+];
+
+var cur = { persona: PERSONAS[0], ep: 'claude', busy: false };
+
+/* ------------------------------------------------------------------ simulator UI */
+function renderPersonas() {
+  $('#personas').innerHTML = PERSONAS.map(function (p) {
+    return '<button class="persona" data-p="' + p.id + '" aria-pressed="' + (p === cur.persona) + '"><span class="avatar">' + p.initials + '</span><strong>' + esc(p.name) + '</strong><span class="meta">' + esc(p.role) + ' · ' + esc(p.groups) + '</span><span class="id">' + esc(p.ident) + '</span></button>';
+  }).join('');
+}
+function renderEpSeg() {
+  $('#epSeg').innerHTML = S.entryPoints.map(function (e) {
+    return '<button data-ep="' + e.key + '" aria-pressed="' + (e.key === cur.ep) + '">' + esc(e.name) + (e.active ? '' : ' (off)') + '</button>';
+  }).join('');
+  var e = getEntryPoint(S, cur.ep);
+  $('#epNote').innerHTML = 'Entry point key <code>' + esc(cur.ep) + '</code>' + (e && !e.active ? '. <strong>Inactive</strong>, so every request from it is denied.' : '. ' + esc(e ? e.description : ''));
+}
+function renderPrompts() {
+  $('#prompts').innerHTML = cur.persona.prompts.map(function (p, i) {
+    return '<button class="prompt-btn" data-i="' + i + '"' + (cur.busy ? ' disabled' : '') + '><span>' + esc(p.text) + '</span><span class="needs">needs ' + esc(p.tool) + '</span></button>';
+  }).join('');
+}
+function setBusy(b) { cur.busy = b; renderPrompts(); $('#freeForm button').disabled = b; }
+
+var stepNo = 0;
+function addStep(o) {
+  stepNo++;
+  var li = document.createElement('li');
+  li.className = 'step' + (o.state ? ' s-' + o.state : '');
+  var html = '<span class="n">' + stepNo + '</span><div class="body"><div class="row1"><span class="node">' + esc(o.node) + '</span>' + (o.pill || '') + '</div><div class="title">' + o.title + '</div>';
+  if (o.text) html += '<div class="text">' + o.text + '</div>';
+  (o.json || []).forEach(function (j) { html += '<details class="json"' + (j.open ? ' open' : '') + '><summary>' + esc(j.label) + '</summary><pre class="code">' + jsonHtml(j.data) + '</pre></details>'; });
+  html += '</div>';
+  li.innerHTML = html;
+  $('#steps').appendChild(li);
+  return li;
+}
+function bot(text, kind) {
+  var d = document.createElement('div');
+  d.className = 'bubble bot';
+  d.innerHTML = '<div class="who">' + esc(getEntryPoint(S, cur.ep).name) + ' (simulated model)' + (kind ? ' · ' + kind : '') + '</div>' + esc(text);
+  $('#run').appendChild(d);
+}
+
+async function runPrompt(p) {
+  if (cur.busy) return;
+  setBusy(true);
+  var persona = cur.persona, key = cur.ep, ident = persona.ident, ep = getEntryPoint(S, key);
+  var reqId = 'req-' + (++S.reqSeq);
+  var run = $('#run');
+  run.innerHTML = '<div class="bubble user"><div class="who">' + esc(persona.name) + ' in ' + esc(ep.name) + '</div>' + esc(p.text) + '</div><ol class="steps" id="steps"></ol>';
+  stepNo = 0;
+  var bypass = $('#optBypass').checked, fail = $('#optFail').checked;
+
+  addStep({ node: 'Entry point · ' + ep.name, title: 'Prompt arrives through <code>' + esc(key) + '</code>', text: 'The front door passes the prompt to the orchestrator. It holds no policy of its own.' });
+  await sleep(350);
+  addStep({ node: 'Orchestrator', state: 'later', pill: '<span class="pill later">later version</span>', title: 'Identity comes from sign-in: <code>' + esc(ident) + '</code>',
+    text: 'Never from the prompt text. In this version the policy API trusts the orchestrator to say who the user is. That is the trust boundary in the plan.' });
+  await sleep(350);
+
+  var pol = getEffectiveTools(S, ident, key, 60);
+  var policyUrl = 'GET ' + API + '/policy?user=' + encodeURIComponent(ident) + '&entry_point=' + key;
+  addStep({ node: 'Policy API → PolicyService', state: pol.denied_reason ? 'deny' : 'allow',
+    pill: pol.denied_reason ? '<span class="pill deny">' + esc(pol.denied_reason) + '</span>' : '<span class="pill allow">' + pol.tools.length + ' of ' + S.tools.length + ' tools</span>',
+    title: 'Ask ServiceNow what this person may use',
+    text: '<code>' + esc(policyUrl) + '</code><br>' + (pol.denied_reason ? 'No tools at all. This call is not logged, because listing is not a decision.' : 'Cached for ' + pol.ttl_seconds + 's, or until <code>policy_version</code> changes. Not logged.'),
+    json: [{ label: 'Response', data: pol }] });
+  await sleep(400);
+
+  var offered = pol.tools.map(function (t) { return t.name; });
+  addStep({ node: 'Model (simulated)', title: 'The model only sees these tools',
+    text: offered.length ? '<span class="chips">' + pol.tools.map(function (t) { return '<span class="chip' + (t.confirm ? ' c' : '') + (t.name === p.tool ? ' hit' : '') + '">' + esc(t.name) + (t.confirm ? ' · confirm' : '') + '</span>'; }).join('') + '</span>' : 'None. The model has no ServiceNow tools in this conversation.' });
+  await sleep(400);
+
+  var isOffered = offered.indexOf(p.tool) !== -1;
+  addStep({ node: 'Model (simulated)', state: isOffered ? '' : 'deny', title: 'Picks <code>' + esc(p.tool) + '</code> for this prompt',
+    text: isOffered ? 'It is in the list, so the model calls it.' : (bypass ? 'It is <strong>not</strong> in the list. The client calls it anyway, so the orchestrator still checks.' : 'It is <strong>not</strong> in the list, so the model cannot call it. No call reaches ServiceNow and nothing is logged.'),
+    json: [{ label: 'Tool call the model wants', data: { tool: p.tool, arguments: p.args } }] });
+  await sleep(400);
+
+  if (!isOffered && !bypass) {
+    if (pol.denied_reason === 'unknown or inactive user') bot('I can\'t use any ServiceNow tools for you. Your sign-in (' + ident + ') doesn\'t match an active ServiceNow user. Ask an MCP Access admin to check your account.', 'refused');
+    else if (pol.denied_reason) bot('I can\'t use ServiceNow tools from ' + ep.name + ' right now: ' + pol.denied_reason + '.', 'refused');
+    else bot('I can\'t do that from ' + ep.name + '. Your access doesn\'t include ' + p.tool + ' here. If you need it, ask an MCP Access admin.', 'refused');
+    return finish();
+  }
+
+  var dReq = { user: ident, entry_point: key, tool: p.tool, request_id: reqId };
+  var d = decide(S, ident, key, p.tool, reqId);
+  updateLogCount();
+  var dState = d.decision === 'allow' ? 'allow' : d.decision === 'deny' ? 'deny' : 'confirm';
+  addStep({ node: 'Policy API → Decision log', state: dState, pill: decisionPill(d.decision), title: 'Check again before the call, and log it',
+    text: esc(d.reason) + (d.rule ? '. Rule: <code>' + esc(ruleSummary(d.rule)) + '</code>' : '') + '. One row written to the decision log' + (d.decision !== 'deny' ? ' with outcome <code>pending</code>.' : '.'),
+    json: [{ label: 'POST ' + API + '/decision', data: dReq }, { label: 'Response', data: { decision: d.decision, reason: d.reason, rule: d.rule } }] });
+  await sleep(400);
+
+  if (d.decision === 'deny') {
+    bot('That was blocked by ServiceNow policy (' + d.reason + '). Nothing was changed.', 'blocked');
+    return finish();
+  }
+
+  if (d.decision === 'confirm_required') {
+    var li = addStep({ node: 'Orchestrator', state: 'confirm', pill: '<span class="pill confirm">waiting for you</span>', title: 'This tool changes a system, so a person must confirm',
+      text: '<div class="confirm-card"><div><strong>' + esc(p.tool) + '</strong><br><span class="mono">' + esc(JSON.stringify(p.args)) + '</span></div><div class="acts"><button class="btn primary" data-c="yes">Confirm</button><button class="btn" data-c="no">Decline</button></div></div>' });
+    var ok = await new Promise(function (res) {
+      $all('[data-c]', li).forEach(function (b) { b.addEventListener('click', function () { res(b.getAttribute('data-c') === 'yes'); }); });
+    });
+    $('.confirm-card', li).innerHTML = ok ? '<strong>Confirmed by ' + esc(persona.name) + '.</strong>' : '<strong>Declined by ' + esc(persona.name) + '.</strong>';
+    recordOutcome(S, reqId, ok ? 'confirmed' : 'declined', null);
+    addStep({ node: 'Policy API → Decision log', state: ok ? 'confirm' : 'deny', pill: outcomePill(ok ? 'confirmed' : 'declined'), title: 'Record the answer',
+      json: [{ label: 'POST ' + API + '/outcome', data: { request_id: reqId, outcome: ok ? 'confirmed' : 'declined' } }] });
+    if (!ok) { bot('OK. I didn\'t run ' + p.tool + '. Nothing was changed.', 'declined'); return finish(); }
+    await sleep(350);
+  }
+
+  var ms = fail ? 3000 + Math.round(Math.random() * 400) : 180 + Math.round(Math.random() * 700);
+  var result = fail ? { error: 'ServiceNow returned 503 Service Unavailable', status: 503 } : p.result;
+  addStep({ node: 'sn-mcp server → instance', state: fail ? 'deny' : 'allow', pill: fail ? '<span class="pill deny">error</span>' : '<span class="pill allow">' + ms + ' ms</span>',
+    title: 'Run <code>' + esc(p.tool) + '</code>', text: 'The sn-mcp server calls the ServiceNow Table API with its own service account. Result is made up.',
+    json: [{ label: 'Tool result', data: result, open: !fail && Array.isArray(result) && result.length <= 2 }] });
+  await sleep(350);
+  var outcome = fail ? 'error' : 'success';
+  recordOutcome(S, reqId, outcome, ms);
+  addStep({ node: 'Policy API → Decision log', state: fail ? 'deny' : 'allow', pill: outcomePill(outcome), title: 'Report the outcome',
+    text: d.decision === 'confirm_required' ? 'This overwrites <code>confirmed</code> on the same row. See finding 2 in Plan review.' : 'Same row, found by <code>request_id</code>.',
+    json: [{ label: 'POST ' + API + '/outcome', data: { request_id: reqId, outcome: outcome, duration_ms: ms } }] });
+  await sleep(300);
+  bot(fail ? 'I couldn\'t finish that. ServiceNow returned an error (503). Nothing was changed. Try again in a minute.' : p.answer, fail ? 'error' : '');
+  finish();
+
+  function finish() {
+    var rows = S.log.filter(function (l) { return l.request_id === reqId; }).length;
+    var f = document.createElement('p');
+    f.className = 'lede';
+    f.style.fontSize = '0.84rem';
+    f.innerHTML = 'Request <code>' + reqId + '</code> · ' + rows + ' decision log row' + (rows === 1 ? '' : 's') + ' written. <button class="linkish" data-goto="log">Open the decision log</button>';
+    $('#run').appendChild(f);
+    updateLogCount(); renderLog();
+    setBusy(false);
+  }
+}
+function freePrompt(text) {
+  var tool = 'docs_search';
+  for (var i = 0; i < FREE_ROUTES.length; i++) if (FREE_ROUTES[i][0].test(text)) { tool = FREE_ROUTES[i][1]; break; }
+  var t = getTool(S, tool);
+  runPrompt({ text: text, tool: tool, args: tool === 'docs_search' ? { query: text, limit: 5 } : { query: text },
+    result: { rows: 3, note: 'simulated result for ' + tool },
+    answer: 'Here is what I found with ' + tool + ' (simulated): 3 matching ' + (t && t.category !== 'docs' ? CATS[t.category][0].toLowerCase() : 'docs pages') + '.' });
+}
+
+/* ------------------------------------------------------------------ policy UI */
+function renderVersion() { $('#polVersion').textContent = S.version; }
+function renderEpTable() {
+  $('#epTable').innerHTML = '<tr><th>Name</th><th>Key</th><th>Active</th></tr>' + S.entryPoints.map(function (e) {
+    return '<tr class="' + (e.active ? '' : 'inactive') + '"><td>' + esc(e.name) + '</td><td class="mono">' + esc(e.key) + '</td><td><label><input type="checkbox" data-ep-toggle="' + e.id + '"' + (e.active ? ' checked' : '') + '> ' + (e.active ? 'on' : 'off') + '</label></td></tr>';
+  }).join('');
+}
+function renderSetTable() {
+  $('#setTable').innerHTML = '<tr><th>Set</th><th>Tools</th><th>Active</th></tr>' + S.sets.map(function (s) {
+    var n = S.items.filter(function (i) { return i[0] === s.id; }).length;
+    return '<tr class="' + (s.active ? '' : 'inactive') + '"><td>' + esc(s.name) + '</td><td class="num">' + n + '</td><td><input type="checkbox" aria-label="Active" data-set-toggle="' + s.id + '"' + (s.active ? ' checked' : '') + '></td></tr>';
+  }).join('');
+}
+function renderRuleTable() {
+  $('#ruleTable').innerHTML = '<tr><th>Rule</th><th>Tool set</th><th>Effect</th><th>Grantee</th><th>Entry point</th><th>Valid to</th><th>Justification</th><th>Active</th><th></th></tr>' + S.rules.map(function (r) {
+    return '<tr class="' + (r.active ? '' : 'inactive') + '"><td class="num">' + r.id + '</td><td>' + esc(setName(r.tool_set)) + '</td><td>' + decisionPill(r.effect) + '</td><td>' + esc(granteeText(r)) + '</td><td>' + esc(r.entry_point ? epName(r.entry_point) : 'Any') + '</td><td class="num">' + esc(r.valid_to || '') + '</td><td style="min-width:200px">' + esc(r.justification) + '</td><td><input type="checkbox" aria-label="Active" data-rule-toggle="' + r.id + '"' + (r.active ? ' checked' : '') + '></td><td><button class="btn danger" style="padding:3px 8px" data-rule-del="' + r.id + '">Delete</button></td></tr>';
+  }).join('');
+}
+function renderRuleForm() {
+  $('#rfSet').innerHTML = S.sets.map(function (s) { return '<option value="' + s.id + '">' + esc(s.name) + '</option>'; }).join('');
+  $('#rfEp').innerHTML = '<option value="">Any</option>' + S.entryPoints.map(function (e) { return '<option value="' + e.id + '">' + esc(e.name) + '</option>'; }).join('');
+  renderRuleWho();
+}
+function renderRuleWho() {
+  var t = $('#rfType').value, opts = [];
+  if (t === 'group') opts = S.groups.map(function (g) { return [g.id, g.name]; });
+  if (t === 'role') opts = S.roles.map(function (r) { return [r.id, r.name]; });
+  if (t === 'user') opts = S.users.map(function (u) { return [u.id, u.name]; });
+  $('#rfWho').innerHTML = opts.length ? opts.map(function (o) { return '<option value="' + o[0] + '">' + esc(o[1]) + '</option>'; }).join('') : '<option value="">(not needed)</option>';
+  $('#rfWho').disabled = !opts.length;
+}
+var catF = 'all';
+function renderToolTable() {
+  var cat = $('#catCat').value;
+  var rows = sortedTools(S).filter(function (t) {
+    if (cat && t.category !== cat) return false;
+    if (catF === 'draft') return t.status === 'draft';
+    if (catF === 'act') return t.pathway === 'act';
+    if (catF === 'blocked') return t.action_class === 'blocked';
+    return true;
+  });
+  $('#catCount').textContent = rows.length + ' of ' + S.tools.length + ' tools';
+  function sel(t, field, opts) { return '<select data-tool="' + t.id + '" data-field="' + field + '" aria-label="' + field + '">' + opts.map(function (o) { return '<option' + (t[field] === o ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select>'; }
+  $('#toolTable').innerHTML = '<tr><th>Name</th><th>Category</th><th>Status</th><th>Pathway</th><th>Action class</th><th>Confirm</th><th>Risk</th><th>Writes</th></tr>' + rows.map(function (t) {
+    return '<tr class="' + (t.status === 'active' && t.action_class !== 'blocked' ? '' : 'inactive') + '"><td class="mono">' + esc(t.name) + '</td><td>' + esc(CATS[t.category] ? CATS[t.category][0] : t.category) + '</td><td>' + sel(t, 'status', ['draft', 'active', 'retired']) + '</td><td>' + sel(t, 'pathway', ['ask', 'co_create', 'act']) + '</td><td>' + sel(t, 'action_class', ['read', 'prepare', 'execute', 'blocked']) + '</td><td><input type="checkbox" aria-label="Requires confirmation" data-tool="' + t.id + '" data-field="requires_confirmation"' + (t.requires_confirmation ? ' checked' : '') + '></td><td>' + sel(t, 'risk', ['low', 'medium', 'high']) + '</td><td class="mono" style="font-size:0.74rem">' + esc(t.writes) + '</td></tr>';
+  }).join('');
+}
+function renderChecker() {
+  var uSel = $('#chkUser'), eSel = $('#chkEp');
+  if (!uSel.options.length) {
+    uSel.innerHTML = S.users.map(function (u) { return '<option value="' + esc(u.email) + '">' + esc(u.name) + ' (' + esc(u.email) + ')</option>'; }).join('') + '<option value="sam.ortiz@partner.example.org">Sam Ortiz (no account)</option>';
+  }
+  eSel.innerHTML = S.entryPoints.map(function (e) { return '<option value="' + e.key + '"' + (eSel.value === e.key ? ' selected' : '') + '>' + esc(e.name) + '</option>'; }).join('');
+  var x = explain(S, uSel.value, eSel.value || 'claude');
+  if (x.denied) { $('#chkOut').innerHTML = '<div class="empty">Nothing allowed: <strong>' + esc(x.denied) + '</strong></div>'; return; }
+  var showDenied = $('#chkDenied').checked;
+  var rows = x.rows.filter(function (r) { return showDenied || r.d.decision !== 'deny'; });
+  var allowed = x.rows.filter(function (r) { return r.d.decision !== 'deny'; }).length;
+  $('#chkOut').innerHTML = '<p class="lede" style="font-size:0.86rem;margin-bottom:8px">' + allowed + ' of ' + x.rows.length + ' tools allowed.</p><div class="tbl-wrap scroll-y" style="max-height:320px"><table><tr><th>Tool</th><th>Decision</th><th>Reason</th><th>Rule</th></tr>' + rows.map(function (r) {
+    return '<tr><td class="mono">' + esc(r.tool.name) + '</td><td>' + decisionPill(r.d.decision) + '</td><td>' + esc(r.d.reason) + '</td><td style="font-size:0.8rem">' + esc(r.d.rule ? ruleSummary(r.d.rule) : '') + '</td></tr>';
+  }).join('') + '</table></div>';
+}
+function renderPolicy() { renderVersion(); renderEpTable(); renderSetTable(); renderRuleTable(); renderToolTable(); renderChecker(); renderEpSeg(); }
+
+/* ------------------------------------------------------------------ log UI */
+var logF = 'all', openRow = null;
+function updateLogCount() { $('#logCount').textContent = S.log.length; }
+function renderLog() {
+  var week = Date.now() - 7 * 864e5;
+  var rows = S.log.slice().sort(function (a, b) { return b.created - a.created; }).filter(function (l) {
+    if (logF === 'deny') return l.decision === 'deny' && l.created >= week;
+    if (logF === 'error') return l.outcome === 'error' && l.created >= week;
+    return true;
+  });
+  var head = '<tr><th>Created (UTC)</th><th>Decision</th><th>Tool</th><th>User</th><th>Entry point</th><th>Outcome</th><th>Reason</th><th>Duration</th></tr>';
+  if (!rows.length) { $('#logTable').innerHTML = head + '<tr><td colspan="8"><div class="empty">No rows match. Run a prompt to write one.</div></td></tr>'; return; }
+  $('#logTable').innerHTML = head + rows.map(function (l) {
+    var r = '<tr class="clickable" data-log="' + l.id + '"><td class="num">' + snTime(new Date(l.created)) + (l.sample ? ' <span class="pill ghost">sample</span>' : '') + '</td><td>' + decisionPill(l.decision) + '</td><td class="mono">' + esc(l.tool_name) + '</td><td>' + (l.user ? esc(userName(l.user)) : '<span class="pill muted">empty</span> ') + '<br><span class="mono" style="color:var(--muted)">' + esc(l.user_identifier) + '</span></td><td class="mono">' + esc(l.entry_point_key) + '</td><td>' + outcomePill(l.outcome) + '</td><td>' + esc(l.reason) + '</td><td class="num">' + (l.duration_ms != null ? l.duration_ms + ' ms' : '') + '</td></tr>';
+    if (openRow === l.id) {
+      r += '<tr class="detail"><td colspan="8"><div class="two"><div><div class="label">History</div><ul style="margin:6px 0 0;padding-left:18px;font-size:0.86rem">' + l.history.map(function (h) { return '<li><span class="mono">' + esc(h.at) + '</span> ' + esc(h.what) + '</li>'; }).join('') + '</ul></div><div><div class="label">Row</div><pre class="code">' + jsonHtml({ user: l.user || '', user_identifier: l.user_identifier, entry_point_key: l.entry_point_key, tool_name: l.tool_name, decision: l.decision, reason: l.reason, rule: l.rule, request_id: l.request_id, outcome: l.outcome, duration_ms: l.duration_ms }) + '</pre></div></div></td></tr>';
+    }
+    return r;
+  }).join('');
+}
+
+/* ------------------------------------------------------------------ flow diagram */
+var NODES = {
+  person: { x: 20, y: 190, w: 130, h: 56, t: 'Person', s: 'signs in', st: 'later' },
+  claude: { x: 190, y: 140, w: 140, h: 52, t: 'Claude', s: 'entry point', st: 'todo' },
+  copilot: { x: 190, y: 240, w: 140, h: 52, t: 'GitHub Copilot', s: 'entry point', st: 'todo' },
+  orch: { x: 380, y: 120, w: 170, h: 190, t: 'Orchestrator', s: 'filters tools, asks to confirm', st: 'later' },
+  mcp: { x: 380, y: 400, w: 170, h: 56, t: 'sn-mcp server', s: '80 tools', st: 'built' },
+  api: { x: 620, y: 30, w: 180, h: 56, t: 'Policy API', s: 'Scripted REST · 5 routes', st: 'todo' },
+  svc: { x: 620, y: 150, w: 180, h: 56, t: 'PolicyService', s: 'deterministic rules', st: 'written' },
+  log: { x: 620, y: 280, w: 180, h: 56, t: 'Decision log', s: 'one row per decision', st: 'built' },
+  records: { x: 620, y: 400, w: 180, h: 56, t: 'Instance records', s: 'incident, change_request, …', st: 'built' },
+  catalog: { x: 880, y: 46, w: 240, h: 44, t: 'Tool catalog', s: '', st: 'built' },
+  sets: { x: 880, y: 100, w: 240, h: 44, t: 'Tool sets + items', s: '', st: 'built' },
+  eps: { x: 880, y: 154, w: 240, h: 44, t: 'Entry points', s: '', st: 'built' },
+  rules: { x: 880, y: 208, w: 240, h: 44, t: 'Access rules', s: '', st: 'built' },
+  roles: { x: 860, y: 290, w: 280, h: 44, t: 'Roles + ACLs', s: '', st: 'written' },
+  admin: { x: 860, y: 400, w: 130, h: 56, t: 'Admin console', s: 'menu + modules', st: 'todo' },
+  auditor: { x: 1010, y: 400, w: 130, h: 56, t: 'Auditor', s: 'read only', st: 'built' }
+};
+var TABLES_BOX = { x: 860, y: 12, w: 280, h: 252 };
+NODES.tables = { x: TABLES_BOX.x, y: TABLES_BOX.y, w: TABLES_BOX.w, h: TABLES_BOX.h, virtual: true };
+var EDGES = [
+  { id: 'e_pc', a: ['person', 'r', .4], b: ['claude', 'l'], label: 'prompt' },
+  { id: 'e_pp', a: ['person', 'r', .6], b: ['copilot', 'l'], label: '' },
+  { id: 'e_co', a: ['claude', 'r'], b: ['orch', 'l', .25], label: '' },
+  { id: 'e_po', a: ['copilot', 'r'], b: ['orch', 'l', .78], label: '' },
+  { id: 'e_oa', a: ['orch', 'r', .15], b: ['api', 'l'], label: '/policy · /decision · /outcome' },
+  { id: 'e_as', a: ['api', 'b'], b: ['svc', 't'], label: 'calls' },
+  { id: 'e_st', a: ['svc', 'r'], b: ['tables', 'l', .55], label: 'reads' },
+  { id: 'e_sl', a: ['svc', 'b'], b: ['log', 't'], label: 'writes' },
+  { id: 'e_om', a: ['orch', 'b'], b: ['mcp', 't'], label: 'allowed calls only' },
+  { id: 'e_mr', a: ['mcp', 'r'], b: ['records', 'l'], label: 'Table API' },
+  { id: 'e_ms', a: ['mcp', 'r', .2], b: ['api', 'l', .8], label: 'POST /catalog/sync', dash: true },
+  { id: 'e_at', a: ['admin', 't'], b: ['roles', 'b', .3], label: 'manage', thru: true },
+  { id: 'e_al', a: ['admin', 'l'], b: ['log', 'r', .7], label: 'read' },
+  { id: 'e_ut', a: ['auditor', 't'], b: ['roles', 'b', .8], label: 'read only', thru: true }
+];
+function anchor(n, side, f) {
+  var N = NODES[n]; f = f == null ? .5 : f;
+  if (side === 'r') return [N.x + N.w, N.y + N.h * f, 1, 0];
+  if (side === 'l') return [N.x, N.y + N.h * f, -1, 0];
+  if (side === 't') return [N.x + N.w * f, N.y, 0, -1];
+  return [N.x + N.w * f, N.y + N.h, 0, 1];
+}
+function edgePath(e) {
+  var p = anchor(e.a[0], e.a[1], e.a[2]), q = anchor(e.b[0], e.b[1], e.b[2]);
+  var d = Math.max(30, Math.min(90, Math.hypot(q[0] - p[0], q[1] - p[1]) / 2.4));
+  var c1 = [p[0] + p[2] * d, p[1] + p[3] * d], c2 = [q[0] + q[2] * d, q[1] + q[3] * d];
+  var mid = [(p[0] + 3 * c1[0] + 3 * c2[0] + q[0]) / 8, (p[1] + 3 * c1[1] + 3 * c2[1] + q[1]) / 8];
+  return { d: 'M' + p[0] + ' ' + p[1] + ' C' + c1[0] + ' ' + c1[1] + ' ' + c2[0] + ' ' + c2[1] + ' ' + q[0] + ' ' + q[1], mid: mid };
+}
+var STATUS_LABEL = { built: ['Built', 'allow'], written: ['Written, not wired up', 'info'], todo: ['Not built yet', 'muted'], later: ['Later version', 'later'] };
+var DETAIL = {
+  person: { h: 'Person', p: 'Someone using Claude or Copilot. Who they are comes from sign-in, never from what they type.', list: ['Sign-in for Claude and Copilot (OAuth) is a later version.', 'Until then the policy API trusts the orchestrator to name the user. See the trust boundary in the plan.'] },
+  claude: { h: 'Entry point: Claude', p: 'A front door. It has no policy of its own. Policy lives behind it, so a new front door is a new row, not a rebuild.', kv: [['Table', SCOPE + '_entry_point'], ['Key', 'claude'], ['Starter data', 'Not loaded yet (build step 7)']], list: ['Turning an entry point off denies everything from it.'] },
+  copilot: { h: 'Entry point: GitHub Copilot', p: 'Same as Claude, with key copilot. Rules can be limited to one entry point. In the demo, developer tools are Copilot-only.', kv: [['Table', SCOPE + '_entry_point'], ['Key', 'copilot']] },
+  orch: { h: 'Orchestrator', p: 'Built in a later version. In the demo its job is simulated.', list: ['Takes the user from sign-in.', 'Calls GET /policy and caches it until policy_version changes or the 60s TTL runs out.', 'Shows the model only the allowed tools.', 'Calls POST /decision before every tool call.', 'Asks the person to confirm act tools.', 'Reports each outcome with POST /outcome.'] },
+  mcp: { h: 'sn-mcp server', p: 'The existing MCP server (separate repo). 80 tools across 15 domains, including docs search. Today it uses a local tools.config.json that is default on. This version does not change it.', kv: [['Repo', 'sn-mcp'], ['Auth', 'OAuth 2.0 JWT bearer'], ['Later', 'Read policy from the API instead of tools.config.json']], list: ['Fills the catalog with POST /catalog/sync. New tools arrive as draft.'] },
+  api: { h: 'Policy API (Scripted REST)', p: 'Not built yet. Only the orchestrator role may call it. The tables stay off the Table API, so this is the only contract.', kv: [['Base path', API], ['Role', SCOPE + '.orchestrator']], list: ['GET /policy?user=&entry_point= — allowed tools, not logged', 'POST /decision — allow / deny / confirm_required, logged', 'POST /outcome — updates the log row', 'GET /catalog — for drift checks', 'POST /catalog/sync — upsert from sn-mcp'] },
+  svc: { h: 'PolicyService', p: 'Written as a server module. Not yet exposed as a Script Include or called by a REST route. No model involved.', kv: [['File', 'src/server/policy/policy-service.ts']], list: ['1. Tool unknown, blocked, retired or draft → deny', '2. Entry point unknown or inactive → deny', '3. User unknown, inactive or ambiguous → deny', '4. Any matching deny rule → deny (deny wins)', '5. Any matching allow → allow, or confirm_required', '6. Nothing matched → deny'] },
+  log: { h: 'Decision log', p: 'One row per POST /decision. POST /outcome updates it by request_id. Nobody edits it in the console.', kv: [['Table', SCOPE + '_decision_log'], ['File', 'src/fluent/tables/decision-log.now.ts'], ['Outcomes', 'pending, success, error, cancelled, confirmed, declined']] },
+  records: { h: 'Instance records', p: 'The ServiceNow data the tools read and write: incidents, changes, knowledge, script includes and so on. The sn-mcp server reaches them through the Table API with its own account.' },
+  catalog: { h: 'Tool catalog', p: 'One row per MCP tool. Each row is the tool\'s capability contract.', kv: [['Table', SCOPE + '_tool'], ['File', 'src/fluent/tables/tool.now.ts'], ['Audit', 'on']], list: ['pathway: ask, co_create, act', 'action_class: read, prepare, execute, blocked', 'requires_confirmation, risk, reads, writes, owner', 'status: draft, active, retired. Only active tools can be granted.'] },
+  sets: { h: 'Tool sets and items', p: 'Named bundles of tools. Rules grant sets, never single tools.', kv: [['Tables', SCOPE + '_tool_set, ' + SCOPE + '_tool_set_item'], ['File', 'src/fluent/tables/tool-set.now.ts']] },
+  eps: { h: 'Entry points table', p: 'The front doors. The orchestrator sends the key.', kv: [['Table', SCOPE + '_entry_point'], ['File', 'src/fluent/tables/entry-point.now.ts']] },
+  rules: { h: 'Access rules', p: 'Grant or deny one tool set to everyone, a group, a role or a user. Optionally for one entry point, optionally time-boxed.', kv: [['Table', SCOPE + '_access_rule'], ['File', 'src/fluent/tables/access-rule.now.ts']], list: ['Deny always wins.', 'No matching rule means deny.'] },
+  tables: { h: 'Policy tables', p: 'The five audited tables that make up the policy. Any create or update moves policy_version.' },
+  roles: { h: 'Roles and ACLs', p: 'Roles are written. ACLs are not built yet.', kv: [['File', 'src/fluent/roles.now.ts']], list: [SCOPE + '.admin — manage tables 1–5, read log (contains auditor)', SCOPE + '.auditor — read everything', SCOPE + '.orchestrator — call the policy API only'] },
+  admin: { h: 'Admin console', p: 'Not built yet. Native list and form modules under an "MCP Access" menu.', list: ['Tool catalog · Tools awaiting review · Act tools', 'Tool sets · Access rules · Entry points', 'Decision log · Denied, last 7 days · Errors, last 7 days', 'Phase 2: Access checker page (previewed on the Policy tab)'] },
+  auditor: { h: 'Auditor', p: 'Governance or cyber. Reads every table and the log. Changes nothing.', kv: [['Role', SCOPE + '.auditor']] }
+};
+var EDGE_DETAIL = {
+  e_pc: 'The person types a prompt in Claude.', e_pp: 'Or in GitHub Copilot.', e_co: 'The entry point forwards the request and the signed-in identity.', e_po: 'Same for Copilot.',
+  e_oa: 'GET /policy before the conversation (cached). POST /decision before each tool call. POST /outcome after.',
+  e_as: 'Each route is a thin wrapper around a PolicyService function.', e_st: 'Reads tools, sets, items, entry points and rules. Also sys_user, group members and roles (cross-scope reads).',
+  e_sl: 'decide() inserts a row. recordOutcome() updates it.', e_om: 'Only tools the policy allowed, after confirmation where needed.', e_mr: 'Table API calls with the sn-mcp service account.',
+  e_ms: 'One-off or scheduled sync of the 80 tool names into the catalog. New tools arrive as draft.', e_at: 'Admins manage tables 1–5 in the console.', e_al: 'Admins and auditors read the log.', e_ut: 'Auditors read every table.'
+};
+var WALK = [
+  { n: ['person', 'claude'], e: ['e_pc'], t: '1. A person asks for something in Claude or Copilot.' },
+  { n: ['claude', 'orch'], e: ['e_co'], t: '2. The orchestrator knows who they are from sign-in, not from the prompt. (Later version.)' },
+  { n: ['orch', 'api', 'svc', 'rules', 'sets', 'catalog', 'eps'], e: ['e_oa', 'e_as', 'e_st'], t: '3. It asks ServiceNow which tools this person may use from this entry point. This version builds this part.' },
+  { n: ['orch', 'api', 'svc'], e: ['e_oa', 'e_as'], t: '4a. It shows the model only those tools, and checks again with POST /decision before each call.' },
+  { n: ['orch', 'mcp', 'records'], e: ['e_om', 'e_mr'], t: '4b. Allowed calls go to the sn-mcp server, which reads or writes instance records.' },
+  { n: ['svc', 'log'], e: ['e_sl'], t: '5. Each decision and its outcome are logged back to ServiceNow. This version builds this part.' },
+  { n: ['admin', 'auditor', 'log', 'roles'], e: ['e_at', 'e_al', 'e_ut'], t: '6. Admins manage the policy tables. Auditors read everything, including the log.' }
+];
+var walkI = -1, selKey = null;
+function renderFlow() {
+  var svg = $('#flowSvg'), h = '';
+  h += '<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z"/></marker></defs>';
+  h += '<g class="group"><rect x="' + TABLES_BOX.x + '" y="' + TABLES_BOX.y + '" width="' + TABLES_BOX.w + '" height="' + TABLES_BOX.h + '" rx="10"/><text x="' + (TABLES_BOX.x + 14) + '" y="' + (TABLES_BOX.y + 22) + '">POLICY TABLES · AUDITED</text></g>';
+  EDGES.forEach(function (e) {
+    var p = edgePath(e);
+    h += '<g class="edge' + (e.dash ? ' dash' : '') + '" data-edge="' + e.id + '" tabindex="0" role="button" aria-label="' + esc(e.label || e.id) + '"><path class="hit" d="' + p.d + '"/><path class="line" d="' + p.d + '" marker-end="url(#arr)"/>' + (e.label ? '<text x="' + p.mid[0] + '" y="' + (p.mid[1] - 5) + '" text-anchor="middle">' + esc(e.label) + '</text>' : '') + '</g>';
+  });
+  Object.keys(NODES).forEach(function (k) {
+    var n = NODES[k]; if (n.virtual) return;
+    var cy = n.y + n.h / 2;
+    h += '<g class="node ' + n.st + '" data-node="' + k + '" tabindex="0" role="button" aria-label="' + esc(n.t) + '"><rect class="box" x="' + n.x + '" y="' + n.y + '" width="' + n.w + '" height="' + n.h + '" rx="8"/>' +
+      (n.s ? '<text class="t" x="' + (n.x + 12) + '" y="' + (cy - 3) + '">' + esc(n.t) + '</text><text class="s" x="' + (n.x + 12) + '" y="' + (cy + 13) + '">' + esc(n.s) + '</text>' : '<text class="t" x="' + (n.x + 12) + '" y="' + (cy + 5) + '">' + esc(n.t) + '</text>') + '</g>';
+  });
+  svg.innerHTML = h;
+}
+function showNode(k) {
+  var d = DETAIL[k], n = NODES[k], st = STATUS_LABEL[n.st] || null;
+  var html = '<div class="label">Component</div><h3>' + esc(d.h) + '</h3>' + (st ? '<span class="pill ' + st[1] + '">' + st[0] + '</span>' : '') + '<p>' + esc(d.p) + '</p>';
+  if (d.kv) html += '<dl class="kv">' + d.kv.map(function (r) { return '<dt>' + esc(r[0]) + '</dt><dd class="mono">' + esc(r[1]) + '</dd>'; }).join('') + '</dl>';
+  if (d.list) html += '<ul>' + d.list.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
+  if (k === 'catalog' || k === 'rules' || k === 'eps' || k === 'sets') html += '<p><button class="linkish" data-goto="policy">Edit these in the Policy tab</button></p>';
+  if (k === 'log') html += '<p><button class="linkish" data-goto="log">Open the decision log</button></p>';
+  $('#flowDetail').innerHTML = html;
+}
+function showEdge(id) {
+  var e = EDGES.filter(function (x) { return x.id === id; })[0];
+  $('#flowDetail').innerHTML = '<div class="label">Connection</div><h3>' + esc(NODES[e.a[0]].t || 'Policy tables') + ' → ' + esc(NODES[e.b[0]].t || 'Policy tables') + '</h3>' + (e.label ? '<p class="mono">' + esc(e.label) + '</p>' : '') + '<p>' + esc(EDGE_DETAIL[id]) + '</p>';
+}
+function clearLit() { $all('#flowSvg .lit, #flowSvg .sel').forEach(function (el) { el.classList.remove('lit'); el.classList.remove('sel'); }); }
+function walk(i) {
+  walkI = Math.max(0, Math.min(WALK.length - 1, i));
+  clearLit();
+  var w = WALK[walkI];
+  w.n.forEach(function (k) { var el = $('[data-node="' + k + '"]'); if (el) el.classList.add('lit'); });
+  w.e.forEach(function (k) { var el = $('[data-edge="' + k + '"]'); if (el) el.classList.add('lit'); });
+  $('#walkTxt').textContent = w.t;
+  $('#walkNext').textContent = walkI === WALK.length - 1 ? 'Start again' : 'Next step';
+  showNode(w.n[w.n.length > 2 ? 2 : w.n.length - 1]);
+}
+
+/* ------------------------------------------------------------------ review */
+var BUILD = [
+  ['1', 'Scaffold project', 'built', 'bar-sn-mcp, SDK 4.9.0, scope switch script for both instances'],
+  ['2', 'Tables 1–6, audit on 1–5', 'built', 'All six tables plus tool_set_item, with forms and lists'],
+  ['3', 'Roles', 'built', 'admin (contains auditor), auditor, orchestrator'],
+  ['3', 'ACLs', 'todo', 'No ACL definitions in src yet'],
+  ['4', 'PolicyService', 'written', 'Logic in src/server/policy. Not yet a Script Include or called by REST'],
+  ['5', 'Scripted REST API, 5 routes', 'todo', ''],
+  ['6', 'Menu and modules', 'todo', ''],
+  ['7', 'Starter data', 'todo', 'Entry points, sets, Docs → everyone rule'],
+  ['8', 'Deploy to PDI', 'todo', 'Build output exists. Deploy not confirmed'],
+  ['9', 'Sync the catalog', 'todo', 'Needs step 5'],
+  ['10', 'Tests', 'todo', 'Logic tests pass in this demo; instance tests need steps 3, 5 and 8'],
+  ['11', 'Phase 2: Access checker', 'later', 'Previewed on the Policy tab']
+];
+var FINDINGS = [
+  { sev: ['Medium', 'confirm'], h: 'Most denials will never reach the decision log.',
+    p: 'The model only sees allowed tools, and GET /policy is not logged. So POST /decision only says deny when a client calls a tool it was not offered. The "Denied, last 7 days" module will be close to empty. Test 7 only logs because the test calls /decision directly.',
+    fix: 'Log a row when GET /policy returns a denied_reason (unknown user, inactive entry point). Or have the orchestrator call /decision when the model asks for a tool it does not have.',
+    try: ['sam', 0, 'Run Sam\'s prompt, then open the log'] },
+  { sev: ['Medium', 'confirm'], h: 'Confirmation and outcome share one field.',
+    p: 'A confirmed call records "confirmed", then "success" overwrites it on the same row. Afterwards the log cannot show that a person approved the change. That is the record governance will want most.',
+    fix: 'Add a separate confirmation field (confirmed, declined, not needed), or log the confirmation as its own row.',
+    try: ['priya', 1, 'Resolve INC0010023 as Priya, confirm, then open the row\'s history'] },
+  { sev: ['Medium', 'confirm'], h: 'recordOutcome accepts any update.',
+    p: 'It updates the newest row with that request_id. That can be a deny row, or a row that already has a final outcome. request_id is not unique.',
+    fix: 'Reject outcomes on deny rows. Only allow pending → confirmed/declined → success/error/cancelled. Make request_id unique, or reject a second /decision with the same id.' },
+  { sev: ['Medium', 'confirm'], h: 'Act tools only need confirmation if they were synced that way.',
+    p: 'The plan says requires_confirmation defaults to true when pathway is act. The code only sets it when /catalog/sync first creates the row. If an admin later changes a tool to act, confirmation stays off.',
+    fix: 'Add a before-update business rule, or have decideTool treat pathway = act as confirm always. This also answers the open decision on risk = high.' },
+  { sev: ['Medium', 'confirm'], h: '/catalog/sync reads a write flag the plan does not mention.',
+    p: 'The plan\'s body is { name, category, source }. The code also reads write to choose act / execute / confirm. If sn-mcp does not send it, every new tool arrives as a read tool with no confirmation. An admin who activates it without looking would grant a write tool with no confirmation step.',
+    fix: 'Add write to the plan and to sn-mcp\'s sync call. Or default new tools to act / execute / confirm until an admin says otherwise.' },
+  { sev: ['Low', 'muted'], h: 'policy_version format and staleness.',
+    p: 'It returns "2026-09-30 09:00:00" (UTC, no T or Z), not the ISO string in the plan\'s example. Deleting a row, or a rule passing its valid_from or valid_to, does not change it.',
+    fix: 'Return ISO 8601 so the API stays portable. Keep ttl_seconds short (60 is fine) since the TTL is what covers deletes and time-boxed rules.' },
+  { sev: ['Low', 'muted'], h: '"Everyone" means everyone with an active ServiceNow account.',
+    p: 'Unknown users get nothing, not even Docs. That matches test 7 but differs from today\'s sn-mcp, which is default on for everyone.',
+    fix: 'Say this in the plan so nobody expects Docs to stay open to external users.',
+    try: ['sam', 0, 'Search the docs as Sam'] },
+  { sev: ['Check', 'info'], h: 'Cross-scope reads of user tables.',
+    p: 'PolicyService reads sys_user, sys_user_grmember and sys_user_has_role from a scoped app. The PDI may allow this by default. A locked-down instance may not.',
+    fix: 'Confirm the read access, or add cross-scope privilege records, before moving to the second instance.' },
+  { sev: ['Low', 'muted'], h: 'Plan wording: "API writes as system".',
+    p: 'Scripted REST runs as the calling orchestrator user. The insert works because GlideRecord skips ACLs, not because it runs as system.',
+    fix: 'Reword it, and add a code comment, so nobody swaps in GlideRecordSecure later and breaks logging.' },
+  { sev: ['Known', 'later'], h: 'Trust boundary.',
+    p: 'Already in the plan. Anyone with the orchestrator role can claim any email. Fine on a personal dev instance only.',
+    fix: 'Keep it on the PDI until the sign-in work proves identity.' }
+];
+var OPEN = [
+  ['Log retention', '90 days, with a table cleaner (sys_auto_flush) added now. One row per tool call adds up fast.'],
+  ['Which instance', 'Stay on the PDI until the REST API is built and tests 1–11 pass there.'],
+  ['Long-term home of policy', 'Keep the API returning plain JSON (it does). Decide after the orchestrator exists.'],
+  ['Confirmation rules', 'Confirm every act tool, every time (see finding 4). Treat risk = high as "no remember my choice" when that feature comes.']
+];
+function renderReview() {
+  $('#buildTable').innerHTML = '<tr><th>Step</th><th>What</th><th>Status</th><th>Notes</th></tr>' + BUILD.map(function (b) {
+    var s = STATUS_LABEL[b[2]]; return '<tr><td class="num">' + b[0] + '</td><td>' + esc(b[1]) + '</td><td><span class="pill ' + s[1] + '">' + s[0] + '</span></td><td style="font-size:0.84rem;color:var(--muted)">' + esc(b[3]) + '</td></tr>';
+  }).join('');
+  $('#findings').innerHTML = FINDINGS.map(function (f, i) {
+    return '<div class="finding"><div class="row1"><span class="pill ' + f.sev[1] + '">' + f.sev[0] + '</span><h3>' + (i + 1) + '. ' + esc(f.h) + '</h3></div><p>' + esc(f.p) + '</p><p class="fix"><strong>Fix:</strong> ' + esc(f.fix) + '</p>' + (f.try ? '<p class="try"><button class="linkish" data-try="' + f.try[0] + ':' + f.try[1] + '">Try it: ' + esc(f.try[2]) + '</button></p>' : '') + '</div>';
+  }).join('');
+  $('#openTable').innerHTML = '<tr><th>Decision</th><th>Recommendation</th></tr>' + OPEN.map(function (o) { return '<tr><td style="white-space:nowrap">' + esc(o[0]) + '</td><td>' + esc(o[1]) + '</td></tr>'; }).join('');
+  runTests();
+}
+function runTests() {
+  function fresh(mod) { var st = seed(); st.log = []; if (mod) mod(st); return st; }
+  function names(p) { return p.tools.map(function (t) { return t.name; }); }
+  function setOf(st, n) { return st.sets.filter(function (s) { return s.name === n; })[0].id; }
+  var T = [
+    ['1', 'Only the Docs rule: any user gets only docs_search and docs_get', function () {
+      var st = fresh(function (s) { s.rules = s.rules.slice(0, 1); });
+      var n = names(getEffectiveTools(st, 'priya.shah@example.com', 'claude'));
+      return n.join(',') === 'docs_get,docs_search';
+    }],
+    ['2', 'Group grant on "Incident — act": member gets confirm: true, non-member does not', function () {
+      var st = fresh();
+      var p = getEffectiveTools(st, 'priya.shah@example.com', 'claude').tools.filter(function (t) { return t.name === 'resolve_incident'; })[0];
+      var a = names(getEffectiveTools(st, 'alex.kim@example.com', 'claude'));
+      return p && p.confirm === true && a.indexOf('resolve_incident') === -1;
+    }],
+    ['3', 'A user deny on the same set beats their group allow', function () {
+      var st = fresh(function (s) { s.rules.push({ id: 'T3', tool_set: setOf(s, 'Incident — act'), grantee_type: 'user', grantee: 'u_priya', entry_point: '', effect: 'deny', active: true }); });
+      return decide(st, 'priya.shah@example.com', 'claude', 'resolve_incident', 't3').reason === 'matched deny rule';
+    }],
+    ['4', 'A rule limited to copilot denies the same user from claude', function () {
+      var st = fresh();
+      return decide(st, 'alex.kim@example.com', 'copilot', 'get_script_include', 'a').decision === 'allow' && decide(st, 'alex.kim@example.com', 'claude', 'get_script_include', 'b').decision === 'deny';
+    }],
+    ['5', 'A blocked tool is denied whatever the rules say', function () {
+      var st = fresh(function (s) { getTool(s, 'docs_search').action_class = 'blocked'; });
+      return decide(st, 'priya.shah@example.com', 'claude', 'docs_search', 't5').reason === 'tool blocked';
+    }],
+    ['6', 'An inactive entry point denies everything from it', function () {
+      var st = fresh(function (s) { s.entryPoints[0].active = false; });
+      var p = getEffectiveTools(st, 'priya.shah@example.com', 'claude');
+      return p.tools.length === 0 && p.denied_reason === 'entry point inactive' && decide(st, 'priya.shah@example.com', 'claude', 'docs_search', 't6').decision === 'deny';
+    }],
+    ['7', 'Unknown email: deny, logged with user_identifier and empty user', function () {
+      var st = fresh(); decide(st, 'nobody@example.com', 'claude', 'docs_search', 't7');
+      var r = st.log[0]; return r && r.decision === 'deny' && r.user === '' && r.user_identifier === 'nobody@example.com';
+    }],
+    ['8', '/decision then /outcome: one row, updated', function () {
+      var st = fresh(); decide(st, 'priya.shah@example.com', 'claude', 'list_incidents', 't8'); recordOutcome(st, 't8', 'success', 120);
+      return st.log.length === 1 && st.log[0].outcome === 'success' && st.log[0].duration_ms === 120;
+    }],
+    ['9', 'Caller without the orchestrator role gets 403', null],
+    ['10', 'Sync: new tool arrives as draft and is not grantable; re-sync keeps admin fields', function () {
+      var st = fresh(); syncCatalog(st, [{ name: 'new_tool', category: 'incident' }]);
+      st.items.push([setOf(st, 'Incident — read'), 't_new_tool']);
+      var draftDenied = decide(st, 'priya.shah@example.com', 'claude', 'new_tool', 'x').reason === 'tool draft';
+      var t = getTool(st, 'list_incidents'); t.risk = 'high'; t.status = 'retired';
+      syncCatalog(st, [{ name: 'list_incidents', category: 'incident' }]);
+      return draftDenied && t.risk === 'high' && t.status === 'retired';
+    }],
+    ['11', 'Admin edits rules; auditor reads only; nobody edits the log', null]
+  ];
+  $('#testTable').innerHTML = '<tr><th>#</th><th>Test from the plan</th><th>Result</th></tr>' + T.map(function (t) {
+    var res;
+    if (!t[2]) res = '<span class="pill later">needs instance</span>';
+    else { var ok = false; try { ok = !!t[2](); } catch (e) { ok = false; } res = ok ? '<span class="pill allow">pass</span>' : '<span class="pill deny">fail</span>'; }
+    return '<tr><td class="num">' + t[0] + '</td><td>' + esc(t[1]) + '</td><td>' + res + '</td></tr>';
+  }).join('');
+}
+
+/* ------------------------------------------------------------------ tabs + events */
+function showTab(name) {
+  $all('nav.tabs button').forEach(function (b) { b.setAttribute('aria-selected', String(b.getAttribute('data-tab') === name)); });
+  $all('section.tab').forEach(function (s) { s.hidden = s.id !== 'tab-' + name; });
+  if (name === 'policy') renderPolicy();
+  if (name === 'log') renderLog();
+  try { history.replaceState(null, '', '#' + name); } catch (e) { /* sandboxed */ }
+}
+document.addEventListener('click', function (ev) {
+  var t = ev.target.closest('[data-tab]'); if (t) { showTab(t.getAttribute('data-tab')); return; }
+  var g = ev.target.closest('[data-goto]'); if (g) { showTab(g.getAttribute('data-goto')); window.scrollTo(0, 0); return; }
+  var p = ev.target.closest('[data-p]');
+  if (p && !cur.busy) { cur.persona = PERSONAS.filter(function (x) { return x.id === p.getAttribute('data-p'); })[0]; cur.ep = cur.persona.ep; renderPersonas(); renderEpSeg(); renderPrompts(); return; }
+  var e = ev.target.closest('[data-ep]'); if (e && !cur.busy) { cur.ep = e.getAttribute('data-ep'); renderEpSeg(); return; }
+  var pb = ev.target.closest('.prompt-btn'); if (pb && !pb.disabled) { runPrompt(cur.persona.prompts[+pb.getAttribute('data-i')]); return; }
+  var tr = ev.target.closest('[data-try]');
+  if (tr && !cur.busy) {
+    var parts = tr.getAttribute('data-try').split(':');
+    cur.persona = PERSONAS.filter(function (x) { return x.id === parts[0]; })[0]; cur.ep = cur.persona.ep;
+    renderPersonas(); renderEpSeg(); showTab('simulate'); window.scrollTo(0, 0);
+    runPrompt(cur.persona.prompts[+parts[1]]); return;
+  }
+  var rd = ev.target.closest('[data-rule-del]');
+  if (rd) { var id = rd.getAttribute('data-rule-del'); S.rules = S.rules.filter(function (r) { return r.id !== id; }); bump(); renderRuleTable(); renderChecker(); toast('Deleted ' + id); return; }
+  var lr = ev.target.closest('[data-log]'); if (lr) { var lid = lr.getAttribute('data-log'); openRow = openRow === lid ? null : lid; renderLog(); return; }
+  var cf = ev.target.closest('#catFilter [data-f]');
+  if (cf) { catF = cf.getAttribute('data-f'); $all('#catFilter button').forEach(function (b) { b.setAttribute('aria-pressed', String(b === cf)); }); renderToolTable(); return; }
+  var lf = ev.target.closest('#logFilter [data-f]');
+  if (lf) { logF = lf.getAttribute('data-f'); $all('#logFilter button').forEach(function (b) { b.setAttribute('aria-pressed', String(b === lf)); }); renderLog(); return; }
+  var nd = ev.target.closest('[data-node]'); if (nd) { clearLit(); nd.classList.add('sel'); showNode(nd.getAttribute('data-node')); return; }
+  var ed = ev.target.closest('[data-edge]'); if (ed) { clearLit(); ed.classList.add('sel'); showEdge(ed.getAttribute('data-edge')); return; }
+});
+document.addEventListener('keydown', function (ev) {
+  if (ev.key !== 'Enter' && ev.key !== ' ') return;
+  var el = ev.target.closest && ev.target.closest('[data-node],[data-edge]');
+  if (el) { ev.preventDefault(); el.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
+});
+document.addEventListener('change', function (ev) {
+  var t = ev.target;
+  if (t.hasAttribute('data-ep-toggle')) { var e = S.entryPoints.filter(function (x) { return x.id === t.getAttribute('data-ep-toggle'); })[0]; e.active = t.checked; bump(); renderEpTable(); renderEpSeg(); renderChecker(); toast(e.name + (e.active ? ' turned on' : ' turned off')); }
+  else if (t.hasAttribute('data-set-toggle')) { var s = S.sets.filter(function (x) { return x.id === t.getAttribute('data-set-toggle'); })[0]; s.active = t.checked; bump(); renderSetTable(); renderChecker(); }
+  else if (t.hasAttribute('data-rule-toggle')) { var r = ruleById(t.getAttribute('data-rule-toggle')); r.active = t.checked; bump(); renderRuleTable(); renderChecker(); }
+  else if (t.hasAttribute('data-tool')) {
+    var tool = S.tools.filter(function (x) { return x.id === t.getAttribute('data-tool'); })[0], f = t.getAttribute('data-field');
+    tool[f] = t.type === 'checkbox' ? t.checked : t.value; bump(); renderToolTable(); renderChecker(); toast(tool.name + ': ' + f + ' = ' + tool[f]);
+  }
+  else if (t.id === 'rfType') renderRuleWho();
+  else if (t.id === 'catCat') renderToolTable();
+  else if (t.id === 'chkUser' || t.id === 'chkEp' || t.id === 'chkDenied') renderChecker();
+});
+$('#ruleForm').addEventListener('submit', function (ev) {
+  ev.preventDefault();
+  S.ruleSeq++;
+  var r = { id: 'ACR' + String(S.ruleSeq).padStart(4, '0'), tool_set: $('#rfSet').value, grantee_type: $('#rfType').value, grantee: $('#rfWho').disabled ? '' : $('#rfWho').value, entry_point: $('#rfEp').value, effect: $('#rfEffect').value, valid_from: '', valid_to: $('#rfTo').value, justification: $('#rfWhy').value || '(demo rule)', active: true };
+  S.rules.push(r); bump(); renderRuleTable(); renderChecker(); toast('Added ' + r.id);
+  $('#rfWhy').value = '';
+});
+$('#freeForm').addEventListener('submit', function (ev) { ev.preventDefault(); var v = $('#freeText').value.trim(); if (v && !cur.busy) { freePrompt(v); $('#freeText').value = ''; } });
+$('#resetBtn').addEventListener('click', function () { var log = S.log; S = seed(); S.log = log.filter(function (l) { return !l.sample; }).concat(S.log); renderPolicy(); renderRuleForm(); toast('Policy reset to starter data. Log kept.'); });
+$('#clearLog').addEventListener('click', function () { S.log = []; openRow = null; updateLogCount(); renderLog(); toast('Log cleared'); });
+$('#runTests').addEventListener('click', function () { runTests(); toast('Tests run'); });
+$('#walkNext').addEventListener('click', function () { walk(walkI >= WALK.length - 1 ? 0 : walkI + 1); });
+$('#walkPrev').addEventListener('click', function () { walk(walkI <= 0 ? 0 : walkI - 1); });
+
+/* ------------------------------------------------------------------ boot */
+$('#catCat').innerHTML = '<option value="">All categories</option>' + Object.keys(CATS).map(function (c) { return '<option value="' + c + '">' + esc(CATS[c][0]) + '</option>'; }).join('');
+renderPersonas(); renderEpSeg(); renderPrompts(); renderRuleForm(); renderFlow(); showNode('svc'); renderReview(); updateLogCount(); renderVersion();
+$('#walkTxt').textContent = 'Seven steps, from prompt to log.';
+$('#run').innerHTML = '<div class="empty">Pick a prompt on the left to watch it go through the policy check.<br>Start with Priya\'s P1 incidents, then try Marcus approving a change from Copilot.</div>';
+var h = (location.hash || '').replace('#', '');
+if (['simulate', 'flow', 'policy', 'log', 'review'].indexOf(h) !== -1) showTab(h);
+// open in a working state: run the first prompt
+if (!h || h === 'simulate') runPrompt(PERSONAS[0].prompts[0]);
+})();
+</script>
+
+</body>
+</html>
