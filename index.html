@@ -479,6 +479,11 @@ footer::before { content: ""; display: block; height: 1px; margin: 0 auto 12px; 
       <div class="tbl-wrap"><table id="epTable"></table></div>
     </div>
     <div class="panel">
+      <div class="panel-head"><h2>Providers</h2><span class="label">x_664529_now_mcp_provider</span></div>
+      <div class="tbl-wrap"><table id="provTable"></table></div>
+      <p class="lede" style="font-size:0.82rem;margin-top:8px">Turning a provider off denies every tool it owns.</p>
+    </div>
+    <div class="panel span2">
       <div class="panel-head"><h2>Tool sets</h2><span class="label">tool_set + tool_set_item</span></div>
       <div class="tbl-wrap scroll-y" style="max-height:260px"><table id="setTable"></table></div>
     </div>
@@ -603,7 +608,7 @@ function toast(msg) {
   clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 2200);
 }
 
-/* ------------------------------------------------------------------ catalog: the 80 sn-mcp tools */
+/* ------------------------------------------------------------------ catalog: the 81 sn-mcp tools */
 var CATS = {
   docs: ['Documentation search', 'Docs'], reports: ['Reports', 'Reports'], incident: ['Incidents', 'Incident'],
   user: ['Users & groups', 'Users & groups'], catalog: ['Service catalog', 'Catalog'], change: ['Change requests', 'Change'],
@@ -663,7 +668,11 @@ function seed() {
       status: cat === 'workflow' ? 'draft' : 'active'
     };
   });
-  st.tools.forEach(function (t) { t.provider = 'sn-mcp'; });
+  st.providers = [
+    { id: 'p_snmcp', name: 'sn-mcp', key: 'sn-mcp', kind: 'mcp_server', active: true, description: 'The sn-mcp server: ServiceNow tools and docs search.' },
+    { id: 'p_snagent', name: 'ServiceNow agent', key: 'servicenow-agent', kind: 'satellite_agent', active: true, description: 'Proposed satellite agent for ServiceNow co-create work.' }
+  ];
+  st.tools.forEach(function (t) { t.provider = 'p_snmcp'; });
   st.sets = []; st.items = [];
   function addSet(name, desc, tools) {
     var s = { id: 'ts_' + st.sets.length, name: name, description: desc, active: true };
@@ -680,7 +689,7 @@ function seed() {
   });
   // Proposed: a satellite agent registered as a capability like any tool. Co-create / prepare: it plans, it never writes.
   var agentTool = { id: 't_servicenow_agent_triage', name: 'servicenow_agent_triage', label: 'ServiceNow agent: triage', category: 'incident', source: 'servicenow',
-    provider: 'ServiceNow agent (satellite)', pathway: 'co_create', action_class: 'prepare', requires_confirmation: false, risk: 'low',
+    provider: 'p_snagent', pathway: 'co_create', action_class: 'prepare', requires_confirmation: false, risk: 'low',
     reads: 'incident, kb_knowledge, cmdb_ci', writes: '', status: 'active' };
   st.tools.push(agentTool);
   addSet('Incident — agents', 'Satellite agents that triage and propose incident work. Every write they propose goes through the gate.', [agentTool]);
@@ -770,9 +779,14 @@ function collectRuleHits(st, userId, ep) {
   });
   return toolHits;
 }
-function decideTool(tool, hit) {
+function providerActive(st, tool) {
+  var pr = (st.providers || []).filter(function (x) { return x.id === tool.provider; })[0];
+  return !pr || pr.active;
+}
+function decideTool(tool, hit, st) {
   if (tool.action_class === 'blocked') return { decision: 'deny', reason: 'tool blocked', rule: null };
   if (tool.status !== 'active') return { decision: 'deny', reason: 'tool ' + (tool.status || 'not active'), rule: null };
+  if (st && !providerActive(st, tool)) return { decision: 'deny', reason: 'provider inactive', rule: null };
   if (hit && hit.denyRule) return { decision: 'deny', reason: 'matched deny rule', rule: hit.denyRule };
   if (hit && hit.allowRule) return tool.requires_confirmation || tool.pathway === 'act'
     ? { decision: 'confirm_required', reason: 'matched allow rule; tool needs confirmation', rule: hit.allowRule }
@@ -788,7 +802,7 @@ function getEffectiveTools(st, identifier, key, ttl) {
   if (!u.sysId) { res.denied_reason = u.reason; return res; }
   var hits = collectRuleHits(st, u.sysId, ep);
   sortedTools(st).forEach(function (t) {
-    var d = decideTool(t, hits[t.id]);
+    var d = decideTool(t, hits[t.id], st);
     if (d.decision !== 'deny') res.tools.push({ name: t.name, confirm: d.decision === 'confirm_required' });
   });
   return res;
@@ -799,7 +813,7 @@ function explain(st, identifier, key) {
   if (!ep || !ep.active) return { denied: ep ? 'entry point inactive' : 'unknown entry point', rows: [] };
   if (!u.sysId) return { denied: u.reason, rows: [] };
   var hits = collectRuleHits(st, u.sysId, ep);
-  return { denied: null, rows: sortedTools(st).map(function (t) { var d = decideTool(t, hits[t.id]); return { tool: t, d: d }; }) };
+  return { denied: null, rows: sortedTools(st).map(function (t) { var d = decideTool(t, hits[t.id], st); return { tool: t, d: d }; }) };
 }
 function decide(st, identifier, key, toolName, requestId, parentRequestId) {
   var rid = (requestId || '').trim();
@@ -807,11 +821,11 @@ function decide(st, identifier, key, toolName, requestId, parentRequestId) {
   if (st.log.some(function (l) { return l.request_id === rid; })) return { decision: 'deny', reason: 'duplicate request_id', rule: null, error: 'duplicate_request_id' };
   var tool = getTool(st, toolName), ep = getEntryPoint(st, key), u = resolveUser(st, identifier), r;
   if (!tool) r = { decision: 'deny', reason: 'unknown tool', rule: null };
-  else if (tool.action_class === 'blocked' || tool.status !== 'active') r = decideTool(tool, undefined);
+  else if (tool.action_class === 'blocked' || tool.status !== 'active' || !providerActive(st, tool)) r = decideTool(tool, undefined, st);
   else if (!ep) r = { decision: 'deny', reason: 'unknown entry point', rule: null };
   else if (!ep.active) r = { decision: 'deny', reason: 'entry point inactive', rule: null };
   else if (!u.sysId) r = { decision: 'deny', reason: u.reason, rule: null };
-  else r = decideTool(tool, collectRuleHits(st, u.sysId, ep)[tool.id]);
+  else r = decideTool(tool, collectRuleHits(st, u.sysId, ep)[tool.id], st);
   var now = Date.now();
   st.log.push({
     id: 'L' + (++st.seq) + '_' + now, created: now, user: u.sysId || '', user_identifier: identifier || '', entry_point_key: key || '',
@@ -844,13 +858,20 @@ function recordOutcome(st, requestId, outcome, ms) {
   return 'ok';
 }
 function syncCatalog(st, tools) {
-  var res = { created: [], updated: [], unchanged: [], invalid: [], not_in_request: [] }, seen = {};
+  var res = { created: [], updated: [], unchanged: [], invalid: [], not_in_request: [], providers_created: [] }, seen = {};
   tools.forEach(function (t) {
     var name = t && typeof t.name === 'string' ? t.name.trim() : '';
     if (!/^[a-z0-9_]{1,100}$/.test(name) || seen[name]) { res.invalid.push(name || String(t && t.name)); return; }
     seen[name] = true;
     var category = t.category || '', source = t.source || (category === 'docs' ? 'docs' : 'servicenow');
-    var provider = typeof t.provider === 'string' ? t.provider.trim() : '';
+    var pkey = typeof t.provider === 'string' ? t.provider.trim() : '';
+    if (pkey && !/^[a-z0-9_.-]{1,40}$/.test(pkey)) { res.invalid.push(name); return; }
+    var provider = '';
+    if (pkey) {
+      var pr = st.providers.filter(function (x) { return x.key === pkey; })[0];
+      if (!pr) { pr = { id: 'p_' + pkey, name: pkey, key: pkey, kind: 'mcp_server', active: true, description: '' }; st.providers.push(pr); res.providers_created.push(pkey); }
+      provider = pr.id;
+    }
     var ex = getTool(st, name);
     if (ex) {
       var pc = !!provider && (ex.provider || '') !== provider;
@@ -871,6 +892,7 @@ var S = seed();
 function bump() { S.version = snTime(new Date()); renderVersion(); }
 function userName(id) { var u = S.users.filter(function (x) { return x.id === id; })[0]; return u ? u.name : ''; }
 function setName(id) { var s = S.sets.filter(function (x) { return x.id === id; })[0]; return s ? s.name : '?'; }
+function providerName(id) { var x = (S.providers || []).filter(function (p) { return p.id === id; })[0]; return x ? x.name : ''; }
 function epName(id) { var e = S.entryPoints.filter(function (x) { return x.id === id; })[0]; return e ? e.name : 'Any'; }
 function granteeText(r) {
   if (r.grantee_type === 'everyone') return 'Everyone';
@@ -1181,6 +1203,12 @@ function renderEpTable() {
     return '<tr class="' + (e.active ? '' : 'inactive') + '"><td>' + esc(e.name) + '</td><td class="mono">' + esc(e.key) + '</td><td><label><input type="checkbox" data-ep-toggle="' + e.id + '"' + (e.active ? ' checked' : '') + '> ' + (e.active ? 'on' : 'off') + '</label></td></tr>';
   }).join('');
 }
+function renderProvTable() {
+  $('#provTable').innerHTML = '<tr><th>Name</th><th>Key</th><th>Kind</th><th>Tools</th><th>Active</th></tr>' + S.providers.map(function (pr) {
+    var n = S.tools.filter(function (t) { return t.provider === pr.id; }).length;
+    return '<tr class="' + (pr.active ? '' : 'inactive') + '"><td>' + esc(pr.name) + '</td><td class="mono">' + esc(pr.key) + '</td><td>' + (pr.kind === 'satellite_agent' ? 'Satellite agent' : 'MCP server') + '</td><td class="num">' + n + '</td><td><label><input type="checkbox" data-prov-toggle="' + pr.id + '"' + (pr.active ? ' checked' : '') + '> ' + (pr.active ? 'on' : 'off') + '</label></td></tr>';
+  }).join('');
+}
 function renderSetTable() {
   $('#setTable').innerHTML = '<tr><th>Set</th><th>Tools</th><th>Active</th></tr>' + S.sets.map(function (s) {
     var n = S.items.filter(function (i) { return i[0] === s.id; }).length;
@@ -1218,7 +1246,7 @@ function renderToolTable() {
   $('#catCount').textContent = rows.length + ' of ' + S.tools.length + ' tools';
   function sel(t, field, opts) { return '<select data-tool="' + t.id + '" data-field="' + field + '" aria-label="' + field + '">' + opts.map(function (o) { return '<option' + (t[field] === o ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select>'; }
   $('#toolTable').innerHTML = '<tr><th>Name</th><th>Category</th><th>Status</th><th>Pathway</th><th>Action class</th><th>Confirm</th><th>Risk</th><th>Provider</th><th>Writes</th></tr>' + rows.map(function (t) {
-    return '<tr class="' + (t.status === 'active' && t.action_class !== 'blocked' ? '' : 'inactive') + '"><td class="mono">' + esc(t.name) + '</td><td>' + esc(CATS[t.category] ? CATS[t.category][0] : t.category) + '</td><td>' + sel(t, 'status', ['draft', 'active', 'retired']) + '</td><td>' + sel(t, 'pathway', ['ask', 'co_create', 'act']) + '</td><td>' + sel(t, 'action_class', ['read', 'prepare', 'execute', 'blocked']) + '</td><td><input type="checkbox" aria-label="Requires confirmation" data-tool="' + t.id + '" data-field="requires_confirmation"' + (t.requires_confirmation ? ' checked' : '') + '></td><td>' + sel(t, 'risk', ['low', 'medium', 'high']) + '</td><td style="font-size:0.8rem">' + esc(t.provider || '') + '</td><td class="mono" style="font-size:0.74rem">' + esc(t.writes) + '</td></tr>';
+    return '<tr class="' + (t.status === 'active' && t.action_class !== 'blocked' ? '' : 'inactive') + '"><td class="mono">' + esc(t.name) + '</td><td>' + esc(CATS[t.category] ? CATS[t.category][0] : t.category) + '</td><td>' + sel(t, 'status', ['draft', 'active', 'retired']) + '</td><td>' + sel(t, 'pathway', ['ask', 'co_create', 'act']) + '</td><td>' + sel(t, 'action_class', ['read', 'prepare', 'execute', 'blocked']) + '</td><td><input type="checkbox" aria-label="Requires confirmation" data-tool="' + t.id + '" data-field="requires_confirmation"' + (t.requires_confirmation ? ' checked' : '') + '></td><td>' + sel(t, 'risk', ['low', 'medium', 'high']) + '</td><td style="font-size:0.8rem">' + esc(providerName(t.provider)) + '</td><td class="mono" style="font-size:0.74rem">' + esc(t.writes) + '</td></tr>';
   }).join('');
 }
 function renderChecker() {
@@ -1236,7 +1264,7 @@ function renderChecker() {
     return '<tr><td class="mono">' + esc(r.tool.name) + '</td><td>' + decisionPill(r.d.decision) + '</td><td>' + esc(r.d.reason) + '</td><td style="font-size:0.8rem">' + esc(r.d.rule ? ruleSummary(r.d.rule) : '') + '</td></tr>';
   }).join('') + '</table></div>';
 }
-function renderPolicy() { renderVersion(); renderEpTable(); renderSetTable(); renderRuleTable(); renderToolTable(); renderChecker(); renderEpSeg(); }
+function renderPolicy() { renderVersion(); renderEpTable(); renderProvTable(); renderSetTable(); renderRuleTable(); renderToolTable(); renderChecker(); renderEpSeg(); }
 
 /* ------------------------------------------------------------------ log UI */
 var logF = 'all', openRow = null;
@@ -1262,24 +1290,25 @@ function renderLog() {
 /* ------------------------------------------------------------------ flow diagram */
 var NODES = {
   person: { x: 20, y: 190, w: 130, h: 56, t: 'Person', s: 'signs in', st: 'later' },
-  claude: { x: 190, y: 140, w: 140, h: 52, t: 'Claude', s: 'entry point', st: 'todo' },
-  copilot: { x: 190, y: 240, w: 140, h: 52, t: 'GitHub Copilot', s: 'entry point', st: 'todo' },
+  claude: { x: 190, y: 140, w: 140, h: 52, t: 'Claude', s: 'entry point', st: 'built' },
+  copilot: { x: 190, y: 240, w: 140, h: 52, t: 'GitHub Copilot', s: 'entry point', st: 'built' },
   orch: { x: 380, y: 120, w: 170, h: 190, t: 'Orchestrator', s: 'filters tools, asks to confirm', st: 'later' },
-  mcp: { x: 380, y: 400, w: 170, h: 56, t: 'sn-mcp server', s: '80 tools', st: 'built' },
+  mcp: { x: 380, y: 400, w: 170, h: 56, t: 'sn-mcp server', s: '81 tools', st: 'built' },
   sat: { x: 20, y: 380, w: 180, h: 60, t: 'ServiceNow agent', s: 'satellite · plans, never writes', st: 'later' },
-  api: { x: 620, y: 30, w: 180, h: 56, t: 'Policy API', s: 'Scripted REST · 5 routes', st: 'todo' },
-  svc: { x: 620, y: 150, w: 180, h: 56, t: 'PolicyService', s: 'deterministic rules', st: 'written' },
+  api: { x: 620, y: 30, w: 180, h: 56, t: 'Policy API', s: 'Scripted REST · 5 routes', st: 'built' },
+  svc: { x: 620, y: 150, w: 180, h: 56, t: 'PolicyService', s: 'deterministic rules', st: 'built' },
   log: { x: 620, y: 280, w: 180, h: 56, t: 'Decision log', s: 'one row per decision', st: 'built' },
   records: { x: 620, y: 400, w: 180, h: 56, t: 'Instance records', s: 'incident, change_request, …', st: 'built' },
   catalog: { x: 880, y: 46, w: 240, h: 44, t: 'Tool catalog', s: '', st: 'built' },
   sets: { x: 880, y: 100, w: 240, h: 44, t: 'Tool sets + items', s: '', st: 'built' },
   eps: { x: 880, y: 154, w: 240, h: 44, t: 'Entry points', s: '', st: 'built' },
   rules: { x: 880, y: 208, w: 240, h: 44, t: 'Access rules', s: '', st: 'built' },
-  roles: { x: 860, y: 290, w: 280, h: 44, t: 'Roles + ACLs', s: '', st: 'written' },
-  admin: { x: 860, y: 400, w: 130, h: 56, t: 'Admin console', s: 'menu + modules', st: 'todo' },
-  auditor: { x: 1010, y: 400, w: 130, h: 56, t: 'Auditor', s: 'read only', st: 'built' }
+  providers: { x: 880, y: 262, w: 240, h: 44, t: 'Providers', s: '', st: 'built' },
+  roles: { x: 860, y: 330, w: 280, h: 44, t: 'Roles + ACLs', s: '', st: 'built' },
+  admin: { x: 860, y: 418, w: 130, h: 56, t: 'Admin console', s: 'menu + modules', st: 'built' },
+  auditor: { x: 1010, y: 418, w: 130, h: 56, t: 'Auditor', s: 'read only', st: 'built' }
 };
-var TABLES_BOX = { x: 860, y: 12, w: 280, h: 252 };
+var TABLES_BOX = { x: 860, y: 12, w: 280, h: 306 };
 NODES.tables = { x: TABLES_BOX.x, y: TABLES_BOX.y, w: TABLES_BOX.w, h: TABLES_BOX.h, virtual: true };
 var EDGES = [
   { id: 'e_pc', a: ['person', 'r', .4], b: ['claude', 'l'], label: 'prompt' },
@@ -1312,25 +1341,26 @@ function edgePath(e) {
   var mid = [(p[0] + 3 * c1[0] + 3 * c2[0] + q[0]) / 8, (p[1] + 3 * c1[1] + 3 * c2[1] + q[1]) / 8];
   return { d: 'M' + p[0] + ' ' + p[1] + ' C' + c1[0] + ' ' + c1[1] + ' ' + c2[0] + ' ' + c2[1] + ' ' + q[0] + ' ' + q[1], mid: mid };
 }
-var STATUS_LABEL = { built: ['Built', 'allow'], written: ['Written, not wired up', 'info'], todo: ['Not built yet', 'muted'], later: ['Later version', 'later'] };
+var STATUS_LABEL = { built: ['Built, not deployed', 'allow'], written: ['Written, not wired up', 'info'], todo: ['Not built yet', 'muted'], later: ['Later version', 'later'] };
 var DETAIL = {
   person: { h: 'Person', p: 'Someone using Claude or Copilot. Who they are comes from sign-in, never from what they type.', list: ['Sign-in for Claude and Copilot (OAuth) is a later version.', 'Until then the policy API trusts the orchestrator to name the user. See the trust boundary in the plan.'] },
-  claude: { h: 'Entry point: Claude', p: 'A front door. It has no policy of its own. Policy lives behind it, so a new front door is a new row, not a rebuild.', kv: [['Table', SCOPE + '_entry_point'], ['Key', 'claude'], ['Starter data', 'Not loaded yet (build step 7)']], list: ['Turning an entry point off denies everything from it.'] },
+  claude: { h: 'Entry point: Claude', p: 'A front door. It has no policy of its own. Policy lives behind it, so a new front door is a new row, not a rebuild.', kv: [['Table', SCOPE + '_entry_point'], ['Key', 'claude'], ['Starter data', 'Loaded on first install']], list: ['Turning an entry point off denies everything from it.'] },
   copilot: { h: 'Entry point: GitHub Copilot', p: 'Same as Claude, with key copilot. Rules can be limited to one entry point. In the demo, developer tools are Copilot-only.', kv: [['Table', SCOPE + '_entry_point'], ['Key', 'copilot']] },
   orch: { h: 'Orchestrator', p: 'Built in a later version. In the demo its job is simulated.', list: ['Takes the user from sign-in.', 'Calls GET /policy and caches it until policy_version changes or the 60s TTL runs out.', 'Shows the model only the allowed tools.', 'Calls POST /decision before every tool call.', 'Asks the person to confirm act tools.', 'Reports each outcome with POST /outcome.'] },
-  mcp: { h: 'sn-mcp server', p: 'The existing MCP server (separate repo). 80 tools across 15 domains, including docs search. Today it uses a local tools.config.json that is default on. This version does not change it.', kv: [['Repo', 'sn-mcp'], ['Auth', 'OAuth 2.0 JWT bearer'], ['Later', 'Read policy from the API instead of tools.config.json']], list: ['Fills the catalog with POST /catalog/sync. New tools arrive as draft.'] },
-  api: { h: 'Policy API (Scripted REST)', p: 'Not built yet. Only the orchestrator role may call it. The tables stay off the Table API, so this is the only contract.', kv: [['Base path', API], ['Role', SCOPE + '.orchestrator']], list: ['GET /policy?user=&entry_point= — allowed tools, not logged', 'POST /decision — allow / deny / confirm_required, logged', 'POST /outcome — updates the log row', 'GET /catalog — for drift checks', 'POST /catalog/sync — upsert from sn-mcp'] },
-  svc: { h: 'PolicyService', p: 'Written as a server module. Not yet exposed as a Script Include or called by a REST route. No model involved.', kv: [['File', 'src/server/policy/policy-service.ts']], list: ['1. Tool unknown, blocked, retired or draft → deny', '2. Entry point unknown or inactive → deny', '3. User unknown, inactive or ambiguous → deny', '4. Any matching deny rule → deny (deny wins)', '5. Any matching allow → allow, or confirm_required', '6. Nothing matched → deny'] },
+  mcp: { h: 'sn-mcp server', p: 'The existing MCP server (separate repo). 81 tools across 15 domains, including docs search. Today it uses a local tools.config.json that is default on. This version does not change it.', kv: [['Repo', 'sn-mcp'], ['Auth', 'OAuth 2.0 JWT bearer'], ['Later', 'Read policy from the API instead of tools.config.json']], list: ['Fills the catalog with POST /catalog/sync. New tools arrive as draft.'] },
+  api: { h: 'Policy API (Scripted REST)', p: 'Built. Only the orchestrator role may call it (a REST ACL with no admin override). The tables stay off the Table API, so this is the only contract.', kv: [['Base path', API], ['Role', SCOPE + '.orchestrator'], ['Files', 'src/fluent/policy-api.now.ts, src/server/policy/rest-handlers.ts']], list: ['GET /policy?user=&entry_point= — allowed tools, not logged', 'POST /decision — allow / deny / confirm_required, logged. 400 without request_id, 409 if reused', 'POST /outcome — confirmed / declined, then success / error / cancelled. 409 if out of order', 'GET /catalog — for drift checks; provider shown as its key', 'POST /catalog/sync — upsert from sn-mcp; creates new providers'] },
+  svc: { h: 'PolicyService', p: 'Built as a server module and called by the REST route handlers. No model involved.', kv: [['File', 'src/server/policy/policy-service.ts']], list: ['1. Tool unknown, blocked, retired or draft, or its provider is off → deny', '2. Entry point unknown or inactive → deny', '3. User unknown, inactive or ambiguous → deny', '4. Any matching deny rule → deny (deny wins)', '5. Any matching allow → allow, or confirm_required (always for act tools)', '6. Nothing matched → deny'] },
   log: { h: 'Decision log', p: 'One row per POST /decision. POST /outcome updates it by request_id. Nobody edits it in the console.', kv: [['Table', SCOPE + '_decision_log'], ['File', 'src/fluent/tables/decision-log.now.ts'], ['Outcomes', 'pending, success, error, cancelled, confirmed, declined']] },
   sat: { h: 'Satellite agent (proposed)', p: 'A ServiceNow domain agent. The orchestrator hands it co-create work: triage, compare, draft, plan. It is registered in the tool catalog like any tool (pathway co_create, action class prepare) and granted through tool sets.', kv: [['Catalog row', 'servicenow_agent_triage'], ['Tool set', 'Incident — agents'], ['Provider', 'ServiceNow agent (satellite)']], list: ['Gets the person\'s allowed tools, never tools of its own.', 'Returns a plan. It cannot call ServiceNow or the policy API itself.', 'The orchestrator runs every planned step through POST /decision and confirmation.', 'Each step is logged with parent_request_id, so one task shows as one tree in the log.'] },
   records: { h: 'Instance records', p: 'The ServiceNow data the tools read and write: incidents, changes, knowledge, script includes and so on. The sn-mcp server reaches them through the Table API with its own account.' },
   catalog: { h: 'Tool catalog', p: 'One row per MCP tool. Each row is the tool\'s capability contract.', kv: [['Table', SCOPE + '_tool'], ['File', 'src/fluent/tables/tool.now.ts'], ['Audit', 'on']], list: ['pathway: ask, co_create, act', 'action_class: read, prepare, execute, blocked', 'requires_confirmation, risk, reads, writes, owner', 'status: draft, active, retired. Only active tools can be granted.'] },
   sets: { h: 'Tool sets and items', p: 'Named bundles of tools. Rules grant sets, never single tools.', kv: [['Tables', SCOPE + '_tool_set, ' + SCOPE + '_tool_set_item'], ['File', 'src/fluent/tables/tool-set.now.ts']] },
+  providers: { h: 'Providers', p: 'The MCP servers and satellite agents that own tools. Turning a provider off denies every tool it owns. /catalog/sync creates a provider the first time it sees a new key.', kv: [['Table', SCOPE + '_provider'], ['File', 'src/fluent/tables/provider.now.ts'], ['Kinds', 'mcp_server, satellite_agent']] },
   eps: { h: 'Entry points table', p: 'The front doors. The orchestrator sends the key.', kv: [['Table', SCOPE + '_entry_point'], ['File', 'src/fluent/tables/entry-point.now.ts']] },
   rules: { h: 'Access rules', p: 'Grant or deny one tool set to everyone, a group, a role or a user. Optionally for one entry point, optionally time-boxed.', kv: [['Table', SCOPE + '_access_rule'], ['File', 'src/fluent/tables/access-rule.now.ts']], list: ['Deny always wins.', 'No matching rule means deny.'] },
   tables: { h: 'Policy tables', p: 'The five audited tables that make up the policy. Any create or update moves policy_version.' },
-  roles: { h: 'Roles and ACLs', p: 'Roles are written. ACLs are not built yet.', kv: [['File', 'src/fluent/roles.now.ts']], list: [SCOPE + '.admin — manage tables 1–5, read log (contains auditor)', SCOPE + '.auditor — read everything', SCOPE + '.orchestrator — call the policy API only'] },
-  admin: { h: 'Admin console', p: 'Not built yet. Native list and form modules under an "MCP Access" menu.', list: ['Tool catalog · Tools awaiting review · Act tools', 'Tool sets · Access rules · Entry points', 'Decision log · Denied, last 7 days · Errors, last 7 days', 'Phase 2: Access checker page (previewed on the Policy tab)'] },
+  roles: { h: 'Roles and ACLs', p: 'Built. Admins manage the policy tables, auditors read them, nobody can write the decision log from the UI (deny ACLs, no admin override).', kv: [['Files', 'src/fluent/roles.now.ts, src/fluent/acls.now.ts']], list: [SCOPE + '.admin — manage tables, read log (contains auditor)', SCOPE + '.auditor — read everything', SCOPE + '.orchestrator — call the policy API only'] },
+  admin: { h: 'Admin console', p: 'Built. Native list and form modules under an "MCP Access" menu.', kv: [['File', 'src/fluent/menu.now.ts']], list: ['Tool catalog · Tools awaiting review · Act tools', 'Tool sets · Access rules · Entry points · Providers', 'Decision log · Denied, last 7 days · Errors, last 7 days', 'Phase 2: Access checker page (previewed on the Policy tab)'] },
   auditor: { h: 'Auditor', p: 'Governance or cyber. Reads every table and the log. Changes nothing.', kv: [['Role', SCOPE + '.auditor']] }
 };
 var EDGE_DETAIL = {
@@ -1339,12 +1369,12 @@ var EDGE_DETAIL = {
   e_as: 'Each route is a thin wrapper around a PolicyService function.', e_st: 'Reads tools, sets, items, entry points and rules. Also sys_user, group members and roles (cross-scope reads).',
   e_sl: 'decide() inserts a row. recordOutcome() updates it.', e_om: 'Only tools the policy allowed, after confirmation where needed.', e_mr: 'Table API calls with the sn-mcp service account.',
   e_os: 'The orchestrator sends a task and the person\'s allowed tools. The agent sends back a plan. Execution stays with the orchestrator.',
-  e_ms: 'One-off or scheduled sync of the 80 tool names into the catalog. New tools arrive as draft.', e_at: 'Admins manage tables 1–5 in the console.', e_al: 'Admins and auditors read the log.', e_ut: 'Auditors read every table.'
+  e_ms: 'One-off or scheduled sync of the 81 tool names into the catalog. New tools arrive as draft.', e_at: 'Admins manage the policy tables in the console.', e_al: 'Admins and auditors read the log.', e_ut: 'Auditors read every table.'
 };
 var WALK = [
   { n: ['person', 'claude'], e: ['e_pc'], t: '1. A person asks for something in Claude or Copilot.' },
   { n: ['claude', 'orch'], e: ['e_co'], t: '2. The orchestrator knows who they are from sign-in, not from the prompt. (Later version.)' },
-  { n: ['orch', 'api', 'svc', 'rules', 'sets', 'catalog', 'eps'], e: ['e_oa', 'e_as', 'e_st'], t: '3. It asks ServiceNow which tools this person may use from this entry point. This version builds this part.' },
+  { n: ['orch', 'api', 'svc', 'rules', 'sets', 'catalog', 'eps', 'providers'], e: ['e_oa', 'e_as', 'e_st'], t: '3. It asks ServiceNow which tools this person may use from this entry point. This version builds this part.' },
   { n: ['orch', 'api', 'svc'], e: ['e_oa', 'e_as'], t: '4a. It shows the model only those tools, and checks again with POST /decision before each call.' },
   { n: ['orch', 'mcp', 'records'], e: ['e_om', 'e_mr'], t: '4b. Allowed calls go to the sn-mcp server, which reads or writes instance records.' },
   { n: ['orch', 'sat'], e: ['e_os'], t: '4c. Proposed: for co-create work the orchestrator hands a task to a satellite agent. The agent returns a plan, and each step goes back through the same gate as 4a.' },
@@ -1373,7 +1403,7 @@ function showNode(k) {
   var html = '<div class="label">Component</div><h3>' + esc(d.h) + '</h3>' + (st ? '<span class="pill ' + st[1] + '">' + st[0] + '</span>' : '') + '<p>' + esc(d.p) + '</p>';
   if (d.kv) html += '<dl class="kv">' + d.kv.map(function (r) { return '<dt>' + esc(r[0]) + '</dt><dd class="mono">' + esc(r[1]) + '</dd>'; }).join('') + '</dl>';
   if (d.list) html += '<ul>' + d.list.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
-  if (k === 'catalog' || k === 'rules' || k === 'eps' || k === 'sets') html += '<p><button class="linkish" data-goto="policy">Edit these in the Policy tab</button></p>';
+  if (k === 'catalog' || k === 'rules' || k === 'eps' || k === 'sets' || k === 'providers') html += '<p><button class="linkish" data-goto="policy">Edit these in the Policy tab</button></p>';
   if (k === 'log') html += '<p><button class="linkish" data-goto="log">Open the decision log</button></p>';
   $('#flowDetail').innerHTML = html;
 }
@@ -1396,17 +1426,17 @@ function walk(i) {
 /* ------------------------------------------------------------------ review */
 var BUILD = [
   ['1', 'Scaffold project', 'built', 'bar-sn-mcp, SDK 4.9.0, scope switch script for both instances'],
-  ['2', 'Tables 1–6, audit on 1–5', 'built', 'All six tables plus tool_set_item, with forms and lists'],
+  ['2', 'Tables 1–7, audit on 1–5 and 7', 'built', 'All tables plus tool_set_item and providers, with forms and lists'],
   ['3', 'Roles', 'built', 'admin (contains auditor), auditor, orchestrator'],
-  ['3', 'ACLs', 'todo', 'No ACL definitions in src yet'],
+  ['3', 'ACLs', 'built', 'Admin manages, auditor reads, nobody writes the log; REST ACL for the orchestrator'],
   ['—', 'Data model fixes', 'built', 'Findings 2–5 fixed; confirmation, parent_request_id, provider, data_quality, evaluation added'],
-  ['4', 'PolicyService', 'written', 'Logic in src/server/policy. Not yet a Script Include or called by REST'],
-  ['5', 'Scripted REST API, 5 routes', 'todo', ''],
-  ['6', 'Menu and modules', 'todo', ''],
-  ['7', 'Starter data', 'todo', 'Entry points, sets, Docs → everyone rule'],
-  ['8', 'Deploy to PDI', 'todo', 'Build output exists. Deploy not confirmed'],
+  ['4', 'PolicyService', 'built', 'Server module, called by the REST handlers'],
+  ['5', 'Scripted REST API, 5 routes', 'built', '400 / 404 / 409 for bad requests and out-of-order outcomes'],
+  ['6', 'Menu and modules', 'built', '11 modules including Providers'],
+  ['7', 'Starter data', 'built', 'Entry points, sn-mcp provider, Docs tools and set, Docs → everyone rule (first install)'],
+  ['8', 'Deploy to PDI', 'todo', 'Builds cleanly. Waiting for the go-ahead'],
   ['9', 'Sync the catalog', 'todo', 'Needs step 5'],
-  ['10', 'Tests', 'todo', 'Logic tests pass in this demo; instance tests need steps 3, 5 and 8'],
+  ['10', 'Tests', 'todo', 'Logic tests pass in this demo; scripts/test-policy-api.sh is ready for the instance'],
   ['11', 'Phase 2: Access checker', 'later', 'Previewed on the Policy tab'],
   ['—', 'Satellite agents', 'later', 'Proposed. Shown in the demo: Priya → "Triage INC0010031"']
 ];
@@ -1447,7 +1477,7 @@ var FINDINGS = [
 ];
 var SAT_CHANGES = [
   ['Register satellites as catalog rows', 'Each satellite agent gets a tool row with pathway co_create and action class prepare, and is granted through tool sets like any tool. The co_create and prepare values exist today but nothing uses them.'],
-  ['Add a provider to each tool', 'The source choice only knows servicenow and docs. Add a provider reference (which server or satellite owns the tool) so other satellites can sync into the same catalog.'],
+  ['Add a provider to each tool', 'Done in code: a Providers table, a provider reference on each tool, and an on/off switch per provider. Other satellites can sync into the same catalog.'],
   ['Link plan steps to their task', 'Add parent_request_id to the decision log and to POST /decision. One task then reads as one tree: the agent row, then every gated step under it.'],
   ['Only the orchestrator calls /decision', 'Satellites never call the policy API and never hold write credentials. They return plans. This keeps the trust boundary in one place.'],
   ['Finish the capability contract', 'Add data_quality (what the tool needs to be reliable) and evaluation (how it is tested) to the tool catalog.']
@@ -1538,6 +1568,13 @@ function runTests() {
       var r = st.log[0];
       return early === 'awaiting_confirmation' && again === 'already_final' && onDeny === 'denied' && dup === 'duplicate_request_id' && r.confirmation === 'confirmed' && r.outcome === 'success';
     }],
+    ['P1', 'Provider off: every tool it owns is denied; sync creates new providers', function () {
+      var st = fresh(function (s) { s.providers[0].active = false; });
+      var off = decide(st, 'priya.shah@example.com', 'claude', 'list_incidents', 'p1').reason === 'provider inactive';
+      var agentStill = names(getEffectiveTools(st, 'priya.shah@example.com', 'claude')).join(',') === 'servicenow_agent_triage';
+      var r = syncCatalog(st, [{ name: 'other_tool', category: 'incident', provider: 'other-server', write: false }]);
+      return off && agentStill && r.providers_created.join() === 'other-server' && getTool(st, 'other_tool').provider === 'p_other-server';
+    }],
     ['S2', 'Satellite cannot widen access: no agent for people without the set', function () {
       var st = fresh(); var a = names(getEffectiveTools(st, 'alex.kim@example.com', 'copilot'));
       return a.indexOf('servicenow_agent_triage') === -1 && names(getEffectiveTools(st, 'priya.shah@example.com', 'claude')).indexOf('servicenow_agent_triage') !== -1;
@@ -1606,6 +1643,7 @@ document.addEventListener('keydown', function (ev) {
 document.addEventListener('change', function (ev) {
   var t = ev.target;
   if (t.hasAttribute('data-ep-toggle')) { var e = S.entryPoints.filter(function (x) { return x.id === t.getAttribute('data-ep-toggle'); })[0]; e.active = t.checked; bump(); renderEpTable(); renderEpSeg(); renderChecker(); toast(e.name + (e.active ? ' turned on' : ' turned off')); }
+  else if (t.hasAttribute('data-prov-toggle')) { var pv = S.providers.filter(function (x) { return x.id === t.getAttribute('data-prov-toggle'); })[0]; pv.active = t.checked; bump(); renderProvTable(); renderToolTable(); renderChecker(); toast(pv.name + (pv.active ? ' turned on' : ' turned off: its tools are denied')); }
   else if (t.hasAttribute('data-set-toggle')) { var s = S.sets.filter(function (x) { return x.id === t.getAttribute('data-set-toggle'); })[0]; s.active = t.checked; bump(); renderSetTable(); renderChecker(); }
   else if (t.hasAttribute('data-rule-toggle')) { var r = ruleById(t.getAttribute('data-rule-toggle')); r.active = t.checked; bump(); renderRuleTable(); renderChecker(); }
   else if (t.hasAttribute('data-tool')) {
