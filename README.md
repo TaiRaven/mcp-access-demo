@@ -10,7 +10,7 @@ Or open `index.html` in a browser.
 
 ## What you can do
 
-- **Run a prompt.** Pick one of four people (service desk agent, change manager, developer, contractor with no account) and an entry point. Send a prompt and watch each step: `GET /policy`, the tools the model sees, `POST /decision`, confirmation, the tool call, and `POST /outcome`. Each step shows its JSON.
+- **Run a prompt.** Includes a satellite agent scenario: Priya asks a ServiceNow agent to triage an incident, and every step of its plan goes through the policy check. Pick one of four people (service desk agent, change manager, developer, contractor with no account) and an entry point. Send a prompt and watch each step: `GET /policy`, the tools the model sees, `POST /decision`, confirmation, the tool call, and `POST /outcome`. Each step shows its JSON.
 - **Data flow.** A diagram of every part, with build status. Click a box or an arrow for details, or use the walkthrough.
 - **Policy.** Turn entry points off, block or retire tools, add allow or deny rules. Then run a prompt again and see the decision change. Includes a preview of the phase 2 Access checker.
 - **Decision log.** Every decision and outcome, with filters for denials and errors.
