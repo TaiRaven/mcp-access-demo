@@ -1341,7 +1341,7 @@ function edgePath(e) {
   var mid = [(p[0] + 3 * c1[0] + 3 * c2[0] + q[0]) / 8, (p[1] + 3 * c1[1] + 3 * c2[1] + q[1]) / 8];
   return { d: 'M' + p[0] + ' ' + p[1] + ' C' + c1[0] + ' ' + c1[1] + ' ' + c2[0] + ' ' + c2[1] + ' ' + q[0] + ' ' + q[1], mid: mid };
 }
-var STATUS_LABEL = { built: ['Built, not deployed', 'allow'], written: ['Written, not wired up', 'info'], todo: ['Not built yet', 'muted'], later: ['Later version', 'later'] };
+var STATUS_LABEL = { built: ['Built, on the PDI', 'allow'], written: ['Written, not wired up', 'info'], todo: ['Not built yet', 'muted'], later: ['Later version', 'later'] };
 var DETAIL = {
   person: { h: 'Person', p: 'Someone using Claude or Copilot. Who they are comes from sign-in, never from what they type.', list: ['Sign-in for Claude and Copilot (OAuth) is a later version.', 'Until then the policy API trusts the orchestrator to name the user. See the trust boundary in the plan.'] },
   claude: { h: 'Entry point: Claude', p: 'A front door. It has no policy of its own. Policy lives behind it, so a new front door is a new row, not a rebuild.', kv: [['Table', SCOPE + '_entry_point'], ['Key', 'claude'], ['Starter data', 'Loaded on first install']], list: ['Turning an entry point off denies everything from it.'] },
@@ -1434,7 +1434,7 @@ var BUILD = [
   ['5', 'Scripted REST API, 5 routes', 'built', '400 / 404 / 409 for bad requests and out-of-order outcomes'],
   ['6', 'Menu and modules', 'built', '11 modules including Providers'],
   ['7', 'Starter data', 'built', 'Entry points, sn-mcp provider, Docs tools and set, Docs → everyone rule (first install)'],
-  ['8', 'Deploy to PDI', 'todo', 'Builds cleanly. Waiting for the go-ahead'],
+  ['8', 'Deploy to PDI', 'built', 'Installed 5 Oct 2026; tables, fields, providers and the 5 routes checked on the instance'],
   ['9', 'Sync the catalog', 'todo', 'Needs step 5'],
   ['10', 'Tests', 'todo', 'Logic tests pass in this demo; scripts/test-policy-api.sh is ready for the instance'],
   ['11', 'Phase 2: Access checker', 'later', 'Previewed on the Policy tab'],
